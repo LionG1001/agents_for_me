@@ -1,0 +1,11 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
