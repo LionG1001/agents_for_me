@@ -11,23 +11,23 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
-    throw "Relay configuration not found: $ConfigPath"
+    throw "未找到中转站配置：$ConfigPath"
 }
 
 $config = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
 foreach ($name in @('host', 'port', 'module', 'user', 'password_file')) {
     if (-not $config.$name) {
-        throw "Relay configuration is missing '$name'."
+        throw "中转站配置缺少字段 '$name'。"
     }
 }
 if (-not (Test-Path -LiteralPath $config.password_file -PathType Leaf)) {
-    throw 'Configured password file does not exist.'
+    throw '配置中指定的密码文件不存在。'
 }
 if ($RemotePath -match '(^|[\\/])\.\.([\\/]|$)') {
-    throw 'RemotePath must not contain parent-directory segments.'
+    throw 'RemotePath 不能包含父目录片段。'
 }
 if ($RemotePath -match '[\r\n?#]') {
-    throw 'RemotePath must not contain control, query, or fragment characters.'
+    throw 'RemotePath 不能包含控制字符、查询字符或片段字符。'
 }
 
 $rsync = if ($RsyncExecutable) {
@@ -37,11 +37,11 @@ $rsync = if ($RsyncExecutable) {
 }
 if (-not $rsync) {
     if ($Action -eq 'check') {
-        Write-Output 'Configuration and password file are present.'
-        Write-Output 'Rsync executable: not found'
+        Write-Output '配置文件和密码文件存在。'
+        Write-Output 'Rsync 可执行文件：未找到'
         exit 2
     }
-    throw 'The rsync executable was not found in PATH.'
+    throw '在 PATH 中未找到 rsync 可执行文件。'
 }
 
 $remoteParts = @()
@@ -52,8 +52,8 @@ $remoteUri = "rsync://$($config.user)@$($config.host):$($config.port)/$($config.
 if ($remoteSuffix) { $remoteUri += "/$remoteSuffix" }
 
 if ($Action -eq 'check') {
-    Write-Output 'Configuration and password file are present.'
-    Write-Output "Rsync executable: $($rsync.Source)"
+    Write-Output '配置文件和密码文件存在。'
+    Write-Output "Rsync 可执行文件：$($rsync.Source)"
     exit 0
 }
 
@@ -63,7 +63,7 @@ switch ($Action) {
         & $rsync.Source @common $remoteUri
     }
     'upload' {
-        if (-not $LocalPath) { throw 'LocalPath is required for upload.' }
+        if (-not $LocalPath) { throw '上传操作必须提供 LocalPath。' }
         $resolved = Resolve-Path -LiteralPath $LocalPath -ErrorAction Stop
         $arguments = @('-a', '--itemize-changes', '--partial') + $common
         if (-not $Execute) { $arguments += '--dry-run' }
@@ -71,9 +71,9 @@ switch ($Action) {
         & $rsync.Source @arguments
     }
     'download' {
-        if (-not $LocalPath) { throw 'LocalPath is required for download.' }
+        if (-not $LocalPath) { throw '下载操作必须提供 LocalPath。' }
         if (-not (Test-Path -LiteralPath $LocalPath -PathType Container)) {
-            throw 'Download LocalPath must be an existing directory.'
+            throw '下载操作的 LocalPath 必须是已存在的目录。'
         }
         $resolved = Resolve-Path -LiteralPath $LocalPath -ErrorAction Stop
         $arguments = @('-a', '--itemize-changes', '--partial') + $common

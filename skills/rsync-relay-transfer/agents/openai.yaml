@@ -1,4 +1,4 @@
 interface:
-  display_name: "Rsync Relay Transfer"
-  short_description: "Run safe rsync relay transfers on remote Linux"
-  default_prompt: "Use $rsync-relay-transfer to safely transfer files through my relay from a remote Linux development environment."
+  display_name: "Rsync 中转站安全传输"
+  short_description: "在远程 Linux 安全使用思源笔记中的 rsync 中转站"
+  default_prompt: "使用 $rsync-relay-transfer 读取我的思源中转站笔记，并在远程 Linux 中安全执行指定的传输任务。"
