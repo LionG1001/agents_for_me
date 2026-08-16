@@ -13,16 +13,16 @@ $ErrorActionPreference = 'Stop'
 
 foreach ($value in @($RelayHost, $Module, $User)) {
     if ($value -match '[\s/@:]') {
-        throw 'Host, module, and user values must not contain whitespace or URI delimiter characters.'
+        throw '主机、模块和用户名不能包含空白字符或 URI 分隔符。'
     }
 }
 
 if ($BasePath -match '(^|[\\/])\.\.([\\/]|$)') {
-    throw 'BasePath must not contain parent-directory segments.'
+    throw 'BasePath 不能包含父目录片段。'
 }
 
 if (-not $Password) {
-    $Password = Read-Host 'Rsync relay password' -AsSecureString
+    $Password = Read-Host '请输入 rsync 中转站密码' -AsSecureString
 }
 
 New-Item -ItemType Directory -Force -Path $ConfigDirectory | Out-Null
@@ -33,7 +33,7 @@ $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
 try {
     $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     if ([string]::IsNullOrEmpty($plainPassword)) {
-        throw 'Password must not be empty.'
+        throw '密码不能为空。'
     }
     [IO.File]::WriteAllText($passwordFile, $plainPassword + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
@@ -61,5 +61,5 @@ $config = [ordered]@{
 }
 [IO.File]::WriteAllText($configFile, ($config | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
-Write-Output "Configuration written to $configFile"
-Write-Output 'Password stored in a user-only ACL file.'
+Write-Output "配置已写入：$configFile"
+Write-Output '密码已保存到仅当前用户可访问的 ACL 文件。'
