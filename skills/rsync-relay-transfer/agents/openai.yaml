@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rsync Relay Transfer"
+  short_description: "Safely upload, download, and list relay files"
+  default_prompt: "Use $rsync-relay-transfer to safely list or transfer files through my configured rsync relay."

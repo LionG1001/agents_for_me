@@ -28,3 +28,4 @@ agents_for_me/
 - [中国差旅餐饮发票整理](skills/organize-invoices/SKILL.md)
 - [发布 Agent Assets](skills/publish-agent-assets/SKILL.md)
 - [远程容器工作区](skills/remote-container-workspace/SKILL.md)
+- [Rsync 公网中转安全传输](skills/rsync-relay-transfer/SKILL.md)
