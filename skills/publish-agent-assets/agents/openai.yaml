@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Agent Assets"
+  short_description: "Validate and publish personal Skills and MCP docs"
+  default_prompt: "Use $publish-agent-assets to validate and publish my Skill or MCP documentation changes."

@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <APP>
+  namespace: <NS>
+  labels:
+    app: <APP>
+    gpuModel: <GPU_MODEL>
+spec:
+  replicas: <REPLICAS>
+  selector:
+    matchLabels:
+      app: <APP>
+      gpuModel: <GPU_MODEL>
+  template:
+    metadata:
+      labels:
+        app: <APP>
+        gpuModel: <GPU_MODEL>
+      annotations:
+        mthreads.com/request-gpu-num: "<GPUS_PER_POD>"
+        gpu.mccplatform.io/product: <GPU_MODEL>
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        assigment: <LABEL>   # 注意拼写：Skill 内部统一使用 assigment
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: <APP>
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: <CONTAINER_NAME>
+        image: <IMAGE>
+        imagePullPolicy: IfNotPresent
+        command: [<ENTRYPOINT>]
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            mthreads.com/gpu: "<GPUS_PER_POD>"
+          requests:
+            mthreads.com/gpu: "<GPUS_PER_POD>"
+        ports:
+        - containerPort: 62216
+          hostPort: 62216
+          protocol: TCP
+        volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        - name: data-pvc
+          mountPath: <MOUNT_DATA>
+        - name: code-pvc
+          mountPath: <MOUNT_CODE>
+      volumes:
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 300Gi
+      - name: data-pvc
+        persistentVolumeClaim:
+          claimName: <PVC_DATA>
+      - name: code-pvc
+        persistentVolumeClaim:
+          claimName: <PVC_CODE>

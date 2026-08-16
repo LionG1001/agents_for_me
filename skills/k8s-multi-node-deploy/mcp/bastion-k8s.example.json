@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "bastion-k8s": {
+      "command": "npx",
+      "args": ["-y", "bastion-k8s-mcp@2.0.0"],
+      "env": {
+        "BASTION_HOST": "<BASTION_HOST>",
+        "BASTION_USER": "<BASTION_USER>",
+        "BASTION_PASSWORD": "<BASTION_PASSWORD>",
+        "BASTION_PORT": "22",
+        "ALLOWED_NAMESPACES": "<NAMESPACE1>,<NAMESPACE2>"
+      }
+    }
+  }
+}
