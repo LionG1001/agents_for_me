@@ -1,0 +1,4 @@
+interface:
+  display_name: "MUSA 训练性能优化"
+  short_description: "基于 Trace 闭环定位并优化 MUSA 大模型训练性能"
+  default_prompt: "使用 $musa-training-optimization 分析这次 MUSA 训练 Trace，并给出可验证、可回退的优化方案。"

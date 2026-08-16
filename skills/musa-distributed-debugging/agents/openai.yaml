@@ -1,0 +1,4 @@
+interface:
+  display_name: "MUSA Distributed Debugging"
+  short_description: "Debug MUSA hangs, collectives, and loss precision divergence."
+  default_prompt: "Use $musa-distributed-debugging to analyze a MUSA distributed training hang, MCCL watchdog timeout, or CPU/MUSA operator and loss precision divergence."

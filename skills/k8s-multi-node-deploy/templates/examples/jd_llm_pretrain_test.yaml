@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jd-llm-pretrain-test
+  namespace: his-test
+  labels:
+    app: jd-llm-pretrain-test
+    gpuModel: X10000
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 132
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: jd-llm-pretrain-test
+      gpuModel: X10000
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: jd-llm-pretrain-test
+        gpuModel: X10000
+      annotations:
+        mthreads.com/request-gpu-num: "8"
+        gpu.mccplatform.io/product: X10000
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        assigment: llm_pretrain_test   # 注意拼写：Skill 内部统一使用 assigment
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: jd-llm-pretrain-test
+            topologyKey: kubernetes.io/hostname
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      serviceAccountName: default
+      serviceAccount: default
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: his-test
+        image: dockerhub.kubekey.local/his-test/musa-train:4.3.5_0126_1000b_dev_alinux.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          ulimit -n 1048576 && /sbin/sshd -D
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            cpu: "224"
+            memory: 1500Gi
+            mthreads.com/gpu: "8"
+          requests:
+            cpu: "224"
+            memory: 1500Gi
+            mthreads.com/gpu: "8"
+        env:
+        - name: POD_OWN_IP_ADDRESS
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: HOST_ADDRESS
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.hostIP
+        - name: HOST_WORKER_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        ports:
+        - containerPort: 62216
+          hostPort: 62216
+          name: tcp-62216
+          protocol: TCP
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        - name: jd-storage
+          mountPath: /home/jd
+        - name: jd-storage-ty
+          mountPath: /mnt
+      volumes:
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 300Gi
+      - name: jd-storage
+        persistentVolumeClaim:
+          claimName: jd-ufs-pvc
+      - name: jd-storage-ty
+        persistentVolumeClaim:
+          claimName: jd-pvc22

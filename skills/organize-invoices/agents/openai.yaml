@@ -1,0 +1,4 @@
+interface:
+  display_name: "发票整理"
+  short_description: "按出差日期整理餐饮发票并处理超额、跨日平均和报销缺口"
+  default_prompt: "Use $organize-invoices 按指定出差范围整理餐饮发票，最大化合规报销金额并汇总缺口。"
