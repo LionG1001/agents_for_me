@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rsync Relay Transfer"
+  short_description: "Run safe rsync relay transfers on remote Linux"
+  default_prompt: "Use $rsync-relay-transfer to safely transfer files through my relay from a remote Linux development environment."
