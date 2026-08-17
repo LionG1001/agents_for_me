@@ -74,7 +74,106 @@ tool_timeout_sec = 60
 
 保存配置后，完全退出并重新启动 Codex。
 
-## 3. 验证连接
+## 3. Markdown、代码块与公式写入契约
+
+SiYuan MCP 的 `document.create(markdown=...)`，以及 `block.insert`、`block.append`、`block.prepend`、`block.update` 在 `dataType="markdown"` 时，接收的都是**求值后的原始 Markdown/Kramdown 文本**。调用方不应再次转义 Markdown 分隔符。
+
+### 3.1 正确写法
+
+行内代码直接使用一对反引号：
+
+```markdown
+`attn_implementation: eager`
+```
+
+围栏代码块直接使用三个反引号，并填写语言标记。下面的四反引号只是为了在本文中展示三反引号代码块：
+
+````markdown
+```python
+attn_weights = softmax(scores + additive_mask, dim=-1, dtype=float32)
+```
+````
+
+行内公式使用 `$...$`，块级公式使用独立的 `$$...$$`：
+
+```markdown
+head dimension 为 $d_k=256$。
+
+$$
+P = \operatorname{softmax}\!\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}} + M\right)
+$$
+```
+
+解析成功后：
+
+- 围栏代码块应成为 SiYuan `type=c` 的代码块；
+- 块级公式应成为 `type=m` 的公式块；
+- 行内代码和行内公式应保留在所属段落中，并按对应样式渲染。
+
+### 3.2 常见错误
+
+不要向 MCP 发送下面这种内容，除非确实想显示字面量反引号：
+
+```text
+\`inline code\`
+\`\`\`python
+print("not a code block")
+\`\`\`
+```
+
+反斜杠会把反引号转义，SiYuan 会将其解析为普通文字，而不是行内代码或代码块。
+
+使用 JavaScript 组织工具调用时还要区分普通模板字符串和 `String.raw`：
+
+- 普通模板字符串中的 `\`` 用于转义 JavaScript 自身的反引号，求值结果里不会保留反斜杠；
+- `String.raw` 会保留这个反斜杠，`String.raw` 与手工 `\`` 组合后会产生错误的 `\`` Markdown；
+- 最终传给 MCP 的字符串应包含原始 `` `code` ``、三个原始反引号或原始 `$$` 分隔符。
+
+### 3.3 写入后验证
+
+创建或批量更新长文档后，应使用 `block.get_kramdown`、`block.batch_kramdown` 或 `export.md` 回读，而不能只依据写入接口返回成功判断格式正确。
+
+至少检查：
+
+1. 是否仍存在 `\`` 或 `\`\`\`` 等可疑转义；
+2. 预期代码块是否为 `type=c`，公式块是否为 `type=m`；
+3. 普通段落中是否残留三反引号；
+4. 代码语言标记是否正确，例如 `python`、`bash`、`text`；
+5. LaTeX 是否在 SiYuan 中实际渲染，而不是显示为普通文本。
+
+只读 SQL 审计示例：
+
+```sql
+SELECT count(*) AS escaped_backtick_blocks
+FROM blocks
+WHERE root_id = '<DOCUMENT_ID>'
+  AND instr(markdown, char(92) || char(96)) > 0;
+
+SELECT type, count(*)
+FROM blocks
+WHERE root_id = '<DOCUMENT_ID>'
+  AND type IN ('c', 'm')
+GROUP BY type;
+```
+
+### 3.4 建议加入 MCP 工具描述的文本
+
+`document` 和 `block` 工具的服务端描述建议包含以下约束：
+
+```text
+For dataType="markdown" and document.create(markdown=...), pass Markdown
+delimiters unescaped in the evaluated payload. Use `code` for inline code,
+fenced code blocks with a language identifier, $...$ for inline math, and
+$$...$$ for block math. Do not send \` or \`\`\` unless literal backticks
+are intended. After parsing, code blocks have type=c and block-math blocks
+have type=m. After long or batch writes, read back Kramdown or exported
+Markdown and verify the parsed block types. Return a warning when suspicious
+escaped Markdown delimiters are detected.
+```
+
+服务端若实现输入检查，建议对可疑的 `\`` 和 `\`\`\`` 返回 warning，而不是自动替换。自动替换可能破坏调用方确实需要展示字面量反引号的内容。
+
+## 4. 验证连接
 
 先检查 Codex 是否识别配置：
 
@@ -91,7 +190,7 @@ codex mcp get siyuan --json
 - 服务端暴露 31 个工具。
 - 这些工具没有提供 MCP 的只读/破坏性注解，因此 `writes` 策略可能对所有工具都弹出确认，这是安全侧的预期行为。
 
-## 4. 安全 Review
+## 5. 安全 Review
 
 当前方案可用，但有以下风险：
 
@@ -108,7 +207,7 @@ codex mcp get siyuan --json
 - 保持工具审批开启，尤其是修改、删除、执行 SQL 或管理类工具。
 - 后续使用 Caddy、Nginx Proxy Manager 或其他反向代理，在内网服务前终止 TLS，并为 DDNS 域名申请有效证书。
 
-## 5. GitHub 凭据能否做成 MCP？
+## 6. GitHub 凭据能否做成 MCP？
 
 可以做 GitHub MCP，但不应做成“读取或返回 GitHub 凭据”的 MCP。正确的边界是：凭据只保存在 MCP 服务端或操作系统凭据库中，MCP 对外只暴露受限的 GitHub 操作。
 
