@@ -1,4 +1,4 @@
 interface:
   display_name: "MUSA 训练性能优化"
-  short_description: "基于 Trace 闭环定位并优化 MUSA 大模型训练性能"
-  default_prompt: "使用 $musa-training-optimization 分析这次 MUSA 训练 Trace，并给出可验证、可回退的优化方案。"
+  short_description: "基于执行路径与 Trace 契约化优化 MUSA 大模型训练"
+  default_prompt: "使用 $musa-training-optimization 审计实际执行路径和训练 Trace，按 proposal/action 输出带理论上限、三级门禁与回退方案的优化计划；只有在已获授权时才逐项实现。"

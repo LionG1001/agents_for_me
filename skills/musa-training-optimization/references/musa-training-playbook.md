@@ -11,8 +11,12 @@
 7. lm_head、loss 与 optimizer
 8. MUSA/MCCL 环境变量候选
 9. 验收矩阵
-10. 优化记录模板
-11. 常见负结果
+10. Runtime path 与提案契约
+11. 数据流、layout 与 materialization
+12. Flat-buffer optimizer 与 bucket 流水
+13. Launcher contract
+14. 优化记录模板
+15. 常见负结果
 
 ## 1. 指标与 Trace 口径
 
@@ -27,6 +31,8 @@
 - 多卡扩展效率和通信占比。
 
 排除首步 checkpoint 加载、lazy initialization、native extension 编译、allocator 扩容、communicator 初始化、autotune 和 cache 填充。
+
+若报告相对另一类设备的性能折算比，分子和分母必须使用相同模型、精度、batch、shape、卡数、数据、训练阶段和计时边界，并同时报告绝对吞吐与峰值显存。跨设备折算用于描述工程目标，不替代本设备上的 A/B Trace。
 
 ### 1.2 GPU 时间口径
 
@@ -100,6 +106,8 @@ Kernel 累计时间允许大于 wall time，因为多个 stream 可以并发。I
 - 合并 token permute、sorting 和 index preparation；
 - 复用通信和 optimizer 临时 buffer。
 
+优先采用 consumer-first layout：从消费方所需的最终 layout 反推 producer 的 output descriptor，让 GEMM、GroupGEMM 或融合 kernel 直接写出目标 stride。先生成中间 layout 再执行 `permute().contiguous()`，常会用一次完整 tensor 读写抵消融合收益。
+
 融合后重新检查寄存器、shared memory、occupancy、workspace 和 backward 保存量。
 
 ### 4.3 用显存换性能
@@ -112,6 +120,18 @@ Kernel 累计时间允许大于 wall time，因为多个 stream 可以并发。I
 - 对固定 shape 使用 MUSA Graph 或编译图。
 
 必须记录所有 rank 的峰值显存。
+
+### 4.4 复用 forward materialization
+
+逐项检查 backward 是否重复构造 forward 已经存在的：
+
+- BF16/FP16 权重视图；
+- transpose/contiguous 权重副本；
+- token index、sort/permute 结果；
+- mask、offset、position 和 shape 元数据；
+- grouped operation descriptor 或 workspace 元数据。
+
+复用前必须证明对象在 backward 消费前仍有效，并把 parameter version、shape、device、dtype、layout 和训练阶段纳入失效条件。可训练参数更新后不得跨 step 复用旧的低精度副本。比较节省的 cast/materialization 时间与额外保存显存。
 
 ## 5. FSDP/HSDP 与通信重叠
 
@@ -141,6 +161,21 @@ gradient ready
 - 比较 overlap 前后等待点，防止只移动等待。
 
 先用真实 message size 执行 all-reduce、reduce-scatter、all-gather 和 All-to-All benchmark，确认 rank/GPU/NIC/NUMA 映射与网卡选择。
+
+### 5.1 从 compute-communication 到 communication-update
+
+先验证普通 backward-compute 与 bucket collective 的重叠，再考虑把已完成 bucket 的参数更新提前，不能一步跳到通信—更新流水。
+
+bucket 级流水需要额外证明：
+
+- collective 的 SUM/AVG 与 gradient scale 语义只执行一次；
+- bucket、flat gradient segment、参数和 optimizer state 一一对应；
+- gradient accumulation、no-sync、ZeRO/FSDP/DDP wrapper 不会重复更新；
+- device Future/event 只建立必要依赖，不引入 host synchronize；
+- checkpoint/save、梯度裁剪和全局 norm 在语义正确的时点读取数据；
+- 每个 bucket 使用独立或严格分代的 buffer，下一次写入不会覆盖在途数据。
+
+ACE 或其他 native communicator 是高风险候选。普通 MCCL process group 初始化、unique ID 交换、独立 stream、对称 window 和 buffer 生命周期都必须有最小复现与 fallback。
 
 ## 6. MoE 优化清单
 
@@ -197,6 +232,18 @@ All-to-All 必须等待 Router 输出。路由完成后再考虑与 shared exper
 
 Muon 候选：同 shape 参数 mega-batch、multi-tensor momentum/Nesterov、BF16 cast 融合、Newton-Schulz epilogue、weight decay/参数回写融合和 buffer 复用。
 
+### 7.3 Flat-buffer update
+
+当 Trace 证明 optimizer 存在大量逐参数 launch 和分散 state 访问时，可评估 flat-buffer 或 multi-tensor update。实施前建立参数映射表，至少覆盖：
+
+- parameter group、学习率、beta、eps、weight decay 和 step；
+- master parameter、gradient、momentum、variance 和其他状态 dtype；
+- contiguous 条件、空梯度、稀疏梯度和共享参数；
+- ZeRO/sharding/offload 的本 rank 所有权；
+- pack、copy-back、foreach copy 和 checkpoint 序列化成本。
+
+局部 optimizer kernel 变快但端到端 step 不变，通常意味着 pack/copy、通信或前后同步吞掉了收益。只有目标训练 gate 通过才保留。
+
 ## 8. MUSA/MCCL 环境变量候选
 
 以下配置只作为同类环境的 A/B 起点，不是通用最优值。升级驱动、torch_musa 或 MCCL 后重新回归。
@@ -242,7 +289,94 @@ export MUSA_EXECUTE_COUNT=1
 
 数值阈值按 dtype 和任务定义。FP32 是否要求 bitwise 一致、BF16 是否允许量化范围差异，需要明确写入实验记录。
 
-## 10. 优化记录模板
+验收按三个 gate 逐层放大：
+
+1. correctness：固定输入的 forward、backward、参数更新、特殊值和边界 shape；
+2. local/operator：observed shape microbenchmark，包含新增 layout、cast、pack 和 copy；
+3. target training：目标 batch、数据、拓扑和稳态窗口的端到端 A/B。
+
+只有前一 gate 通过才进入下一 gate。默认采纳阈值应高于基线噪声；无统一百分比时，用至少三次独立稳态测量估计噪声带。
+
+## 10. Runtime path 与提案契约
+
+### 10.1 五态事实矩阵
+
+| 路径 | imported | reachable | default-on | observed | fallback |
+| --- | --- | --- | --- | --- | --- |
+| `<candidate>` | 版本/导入证据 | 模型、dtype、shape、layout 条件 | 默认值和配置源 | 日志、hook、Trace、kernel | 回退路径与首次失败行为 |
+
+不要把 imported 当成 observed，也不要把配置默认打开当成 kernel 成功执行。对 import-time 环境变量，必须在 import 前设置并在启动日志中打印最终值。
+
+### 10.2 Proposal contract
+
+每轮默认给 2–3 个 action，按低、中、高风险分层：
+
+```markdown
+proposal_id: PERF-YYYYMMDD-NN
+baseline_id: <immutable baseline>
+
+action_id: A1
+hypothesis_source: trace | code-audit | platform-doc | user-reference
+evidence: <kernel/module/shape/count/time/source location>
+amdahl_bound: <target share and theoretical upper bound>
+implementation_boundary: <files/modules/topology>
+fallback: <flag and eager/reference path>
+gates: correctness -> local/operator -> target-training
+adopt_when: <threshold above noise, memory and stability limits>
+rollback_when: <precision/perf/OOM/stability condition>
+```
+
+用户只要求建议、计划或 review 时停在 proposal；没有已经授权的实现范围，不提前占用 GPU 或修改代码。实施阶段一次只执行一个 action，避免收益和回归无法归因。
+
+### 10.3 GPU availability preflight
+
+每条 MUSA/GPU 命令前检查进程、显存、设备健康和任务归属。目标卡忙时，只有在实验条件等价且用户范围允许时才换卡；否则停止并报告。不得以性能测试为由清理未知进程。
+
+## 11. 数据流、layout 与 materialization
+
+优化一个模块前画出：
+
+```text
+producer output
+  -> dtype/layout transform
+  -> consumer input
+  -> backward saved tensors
+  -> gradient output/layout
+```
+
+对每条边记录 shape、stride、dtype、device、调用次数和 tensor 字节数。优先级通常是：
+
+1. 让 producer 直接写 consumer layout；
+2. 删除重复 contiguous/transpose/cast；
+3. 安全复用 forward 已 materialize 的视图；
+4. 再融合 elementwise 和 bias epilogue；
+5. 最后才考虑重写底层 GEMM。
+
+GroupedMatMul/GroupGEMM 必须用真实 group 数、每组 M/N/K、bias、空组和 stride 测试。小矩阵或不规则 group 可能因 descriptor、workspace 和调度开销反而更慢。
+
+## 12. Flat-buffer optimizer 与 bucket 流水
+
+分三档推进，逐档验收：
+
+1. foreach/multi-tensor：保持原 optimizer 和 state 结构，仅减少 launch；
+2. flat-buffer optimizer：参数、梯度和 state 建立稳定 segment 映射，一次或少量 kernel 更新；
+3. communication-update pipeline：bucket collective 完成后，提前更新对应 segment。
+
+第三档必须具备第二档的稳定映射，并与 gradient clipping、accumulation、ZeRO/sharding 和 checkpoint 语义对齐。任何档位都要把 pack/copy-in、kernel、copy-back 和同步计入局部及端到端结果。
+
+## 13. Launcher contract
+
+性能路径不仅是 Python 分支，还包括启动契约：
+
+- argparse、YAML、命令行和环境变量的优先级唯一且有文档；
+- 默认值、`=0` opt-out、`auto` 和强制模式语义明确；
+- launcher 只转发其职责范围内的变量，不跨层覆盖模型配置；
+- import-time 环境变量在导入前设置，并打印最终生效值；
+- `run.sh`、profile launcher、README 和测试保持一致；
+- runtime 日志打印路径是 fastpath、fallback 还是 disabled；
+- 多机所有 rank 获得相同设置。
+
+## 14. 优化记录模板
 
 ```markdown
 ## 优化名称
@@ -273,7 +407,7 @@ export MUSA_EXECUTE_COUNT=1
 - 保留或回滚、适用范围和后续工作
 ```
 
-## 11. 常见负结果
+## 15. 常见负结果
 
 | 方案 | 常见原因 | 处理方式 |
 | --- | --- | --- |
@@ -282,5 +416,10 @@ export MUSA_EXECUTE_COUNT=1
 | FSDP direct copy | 目标拓扑中不在关键路径 | 检查主 stream pack/unpack 和暴露时间 |
 | GroupGEMM + SwiGLU + route weight 一次性融合 | 逻辑过多，难归因且 backward 复杂 | 拆分阶段逐项验证 |
 | 仅设置异步通信 | event、copy 或后续 wait 仍串行 | 用 timeline 验证实际 overlap |
+| 只安装 extension 或设置开关 | 路径未 reachable、未 observed 或静默 fallback | 建立 imported/reachable/default-on/observed/fallback 矩阵 |
+| producer 后再做 layout conversion | 完整 tensor copy 抵消融合收益 | 让 producer 直接写 consumer layout |
+| backward 重做低精度权重 materialization | 重复 cast、分配和写回 | 在正确生命周期内复用 forward 视图 |
+| flat-buffer optimizer | pack/copy-back、ZeRO 映射或 checkpoint 成本过高 | 分档实施并计算完整数据搬运 |
+| communication-update pipeline | SUM/AVG、梯度裁剪或更新时序改变 | 先冻结语义，再做 bucket 级依赖验证 |
 
 记录失败配置、Trace、shape、版本、显存和误差，避免团队重复投入。
