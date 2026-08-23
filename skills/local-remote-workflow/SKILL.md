@@ -1,5 +1,5 @@
 ---
-name: local-git-remote-execution
+name: local-remote-workflow
 description: 管理“本地 Git 是唯一正式源码和历史、远端服务器/容器/Pod 只负责编译、训练或测试”的个人研发项目。用于建立本地基线、生成项目级 AGENTS.md、规划逻辑实验、Review 本地修改、最小化同步、执行获授权的远端验证、记录 Checkpoint 或交接。当前项目明确以远端工作树为权威时不要使用。
 ---
 

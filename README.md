@@ -23,7 +23,7 @@ agents_for_me/
 
 - [User Skills 目录约定](skills/README.md)
 - [Kubernetes 多机 GPU 部署](skills/k8s-multi-node-deploy/SKILL.md)
-- [本地 Git 与远端执行验证](skills/local-git-remote-execution/SKILL.md)
+- [本地 Git 与远端执行验证](skills/local-remote-workflow/SKILL.md)
 - [MUSA 分布式训练调试](skills/musa-distributed-debugging/SKILL.md)
 - [MUSA 训练性能优化](skills/musa-training-optimization/SKILL.md)
 - [中国差旅餐饮发票整理](skills/organize-invoices/SKILL.md)
