@@ -1,0 +1,4 @@
+interface:
+  display_name: "本地 Git 与远端验证"
+  short_description: "以本地 Git 为唯一历史并在远端安全执行、验证和交接"
+  default_prompt: "使用 $local-git-remote-execution 管理本地源码修改、安全同步和远端验证闭环。"
