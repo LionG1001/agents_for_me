@@ -19,13 +19,33 @@ description: 安全使用思源笔记 `/公网中转` 中记录的个人 rsync �
 
 读取凭据时不得输出其内容。远程 Linux 需要密码文件时，创建权限为 `0600` 的临时文件或用户授权的主机本地文件，并通过 rsync 的 `--password-file` 使用。除非用户授权长期保存，否则操作结束后删除临时副本。
 
-自带 PowerShell 脚本只用于用户明确选择 Windows 作为执行主机的场景，不是远程 Linux 工作流的前置条件。
+Linux/macOS 使用自带 shell 脚本；PowerShell 脚本只用于用户明确选择 Windows 作为执行主机的场景。两者都不是远程 Linux 工作流的前置条件；如果操作已在目标 Linux 主机上，可直接使用原生 `rsync`。
 
 ## 执行中转操作
 
 支持笔记中记录的三类工作流：上传到中转站、从中转站下载、查看中转站文件列表。在远程 Linux 上使用原生 `rsync`，保持笔记中记录的目标目录布局。上传和下载增加 `--itemize-changes` 并默认先执行 `--dry-run`。不得将密码放入命令参数或可被环境转储的长期变量。
 
-只有明确选择 Windows 作为执行主机时，才使用 `scripts/invoke-rsync-relay.ps1`：
+Linux/macOS 可先通过安全交互提示创建本机配置：
+
+```bash
+<skill-root>/scripts/setup-relay-config.sh \
+  --host <relay-host> \
+  --port <port> \
+  --module <module> \
+  --user <user> \
+  --base-path <optional-base-path>
+```
+
+然后使用 shell 版本执行：
+
+```bash
+<skill-root>/scripts/invoke-rsync-relay.sh check
+<skill-root>/scripts/invoke-rsync-relay.sh list --remote-path "folder"
+<skill-root>/scripts/invoke-rsync-relay.sh upload --local-path "/data/file" --remote-path "folder"
+<skill-root>/scripts/invoke-rsync-relay.sh download --remote-path "folder/file" --local-path "/data/downloads"
+```
+
+只有明确选择 Windows 作为执行主机时，才使用 PowerShell 版本：
 
 ```powershell
 & "<skill-root>\scripts\invoke-rsync-relay.ps1" -Action check
@@ -34,7 +54,7 @@ description: 安全使用思源笔记 `/公网中转` 中记录的个人 rsync �
 & "<skill-root>\scripts\invoke-rsync-relay.ps1" -Action download -RemotePath "folder/file" -LocalPath "C:\downloads"
 ```
 
-上传和下载默认只预演。检查逐项变更输出后，只有在用户要求实际执行且结果合理时才添加 `-Execute`。默认禁止 `--delete`；只有用户明确要求删除并核对精确作用范围后才允许使用。
+上传和下载默认只预演。检查逐项变更输出后，只有在用户要求实际执行且结果合理时，bash 添加 `--execute`，PowerShell 添加 `-Execute`。默认禁止 `--delete`；只有用户明确要求删除并核对精确作用范围后才允许使用。
 
 使用 `list` 进行只读连通性测试。报告诊断信息时隐藏用户名、密码和完整认证头。
 
