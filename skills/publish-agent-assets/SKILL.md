@@ -15,11 +15,22 @@ Classify each input before changing files:
 - MCP document: a Markdown guide describing MCP setup, operation, or review.
 - Exclude system Skills, plugin caches, generated logs, credentials, virtual environments, and repository metadata.
 
-Treat `%USERPROFILE%\.codex\skills\.system` and plugin cache directories as out of scope unless the user explicitly requests third-party code vendoring.
+Treat `%USERPROFILE%\.codex\skills\.system`, `$HOME/.codex/skills/.system`, and plugin cache directories as out of scope unless the user explicitly requests third-party code vendoring.
 
 ## Synchronize assets
 
-Use `scripts/sync-assets.ps1` to copy inputs into the repository's canonical layout:
+Choose the script for the local platform and copy inputs into the repository's canonical layout.
+
+Linux/macOS with bash:
+
+```bash
+<skill-root>/scripts/sync-assets.sh \
+  --type skill \
+  --source <path-to-skill> \
+  --repository-root <path-to-agents_for_me>
+```
+
+Windows with PowerShell:
 
 ```powershell
 & "<skill-root>\scripts\sync-assets.ps1" `
@@ -28,13 +39,21 @@ Use `scripts/sync-assets.ps1` to copy inputs into the repository's canonical lay
   -RepositoryRoot "<path-to-agents_for_me>"
 ```
 
-Pass multiple paths to `-Source` when collecting several Skills. Use `-Update` only when the destination already exists and the user requested an update. The update mode overwrites matching files but does not delete destination-only files; review stale files manually.
+Pass repeated `--source` arguments in bash or multiple paths to `-Source` in PowerShell when collecting several Skills. Use `--update`/`-Update` only when the destination already exists and the user requested an update. The update mode overwrites matching files but does not delete destination-only files; review stale files manually.
 
-For MCP documents, use `-Type McpDoc`. The script places them under `docs/mcp/`.
+For MCP documents, use `--type mcp-doc` in bash or `-Type McpDoc` in PowerShell. The scripts place them under `docs/mcp/`.
 
 ## Validate before Git operations
 
-Run:
+Run the platform-appropriate validator.
+
+Linux/macOS with bash:
+
+```bash
+<skill-root>/scripts/validate-repository.sh <path-to-agents_for_me>
+```
+
+Windows with PowerShell:
 
 ```powershell
 & "<skill-root>\scripts\validate-repository.ps1" `

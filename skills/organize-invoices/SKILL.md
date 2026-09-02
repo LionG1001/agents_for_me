@@ -30,7 +30,7 @@ description: 按出差日期整理中国电子餐饮、饭店、外卖及餐饮�
 - 处理 PDF 时，遵循可用的 PDF 技能完成文本提取与票面核验。
 - 在已安装 `pdfplumber` 时运行只读盘点脚本：
 
-```powershell
+```bash
 python scripts/invoice_inventory.py "原始发票" --json
 ```
 

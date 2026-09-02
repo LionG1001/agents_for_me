@@ -33,7 +33,36 @@ Ask only for missing values that cannot be inferred safely. Never copy a passwor
 5. Confirm that the returned path exactly matches the requested workspace. Diagnose missing containers or directories before continuing.
 6. Run requested commands non-interactively when possible. Open a visible interactive terminal only when the user needs to control a shell.
 
-Use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/connect-container.ps1 ...` on Windows for a consistent implementation. The process-level bypass supports systems that disable local scripts without changing the system execution policy. Use `-DryRun` first when parameters or quoting are uncertain.
+On Linux/macOS, use `scripts/connect-container.sh ...`; on Windows, use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/connect-container.ps1 ...`. The process-level bypass supports Windows systems that disable local scripts without changing the system execution policy. Use `--dry-run` or `-DryRun` first when parameters or quoting are uncertain.
+
+## Linux/macOS and bash command reliability
+
+Use the bundled script for short one-shot commands or interactive sessions:
+
+```bash
+<skill-dir>/scripts/connect-container.sh \
+  --host <host> \
+  --user <user> \
+  --container <container> \
+  --workdir <workdir> \
+  --command 'pwd && git status --short'
+```
+
+For multi-line commands, here-docs, or nested quoting, stream a local script over SSH instead of adding another `sh -lc` quoting layer:
+
+```bash
+ssh -o StrictHostKeyChecking=accept-new <user>@<host> \
+  "docker exec -i -w '<workdir>' '<container>' sh" <<'REMOTE_SH'
+set -eu
+pwd
+grep -nE 'pattern1|pattern2' /etc/hosts || true
+python3 - <<'PY'
+print("remote python ran inside the container")
+PY
+REMOTE_SH
+```
+
+For Python-heavy inspection, pipe the Python source directly to `python3 -` in the container. Keep the outer here-doc delimiter quoted so the local shell does not expand `$`, command substitutions, or backslashes intended for the remote script.
 
 ## Windows and PowerShell command reliability
 
@@ -105,11 +134,25 @@ Prefer, in order:
 3. Interactive password entry
 4. A password stored only in a process environment variable for the current operation
 
-The bundled script accepts `-PasswordEnvironmentVariable`. It copies that value into a short-lived child-process environment variable and creates only a temporary credential-free askpass helper. It removes the helper after SSH exits.
+The bundled scripts accept `--password-env` in bash or `-PasswordEnvironmentVariable` in PowerShell. They pass the value only to the SSH child process and create a temporary credential-free askpass helper, then remove the helper after SSH exits.
 
 ## Example
 
-Verify the known development workspace without storing its password:
+Verify a development workspace without storing its password.
+
+Linux/macOS with bash:
+
+```bash
+./scripts/connect-container.sh \
+  --host 10.20.35.29 \
+  --user mccxadmin \
+  --container jd_dev \
+  --workdir /data/bevformer_bk/liang.geng/jd_test
+```
+
+Add `--interactive` to open a shell, or add `--command 'git status --short'` for a one-shot command.
+
+Windows with PowerShell:
 
 ```powershell
 .\scripts\connect-container.ps1 `
