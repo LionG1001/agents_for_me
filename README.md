@@ -24,9 +24,15 @@ agents_for_me/
 - [User Skills 目录约定](skills/README.md)
 - [Kubernetes 多机 GPU 部署](skills/k8s-multi-node-deploy/SKILL.md)
 - [本地 Git 与远端执行验证](skills/local-remote-workflow/SKILL.md)
+- [多集群访问](skills/multi-cluster-access/SKILL.md)
 - [MUSA 分布式训练调试](skills/musa-distributed-debugging/SKILL.md)
 - [MUSA 训练性能优化](skills/musa-training-optimization/SKILL.md)
 - [中国差旅餐饮发票整理](skills/organize-invoices/SKILL.md)
 - [发布 Agent Assets](skills/publish-agent-assets/SKILL.md)
 - [远程容器工作区](skills/remote-container-workspace/SKILL.md)
 - [Rsync 公网中转安全传输](skills/rsync-relay-transfer/SKILL.md)
+
+## 维护与验证
+
+- 离线回归：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`
+- 仓库验证：`bash skills/publish-agent-assets/scripts/validate-repository.sh .`（Python 3.10+、PyYAML）

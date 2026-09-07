@@ -25,7 +25,7 @@ Options:
   --poll-interval SEC       Poll interval in seconds (default: 60)
   --hang-minutes MIN        Hang threshold in minutes since last step/loss log (default: 10)
   --master-rank N           Master rank index in hostfile (default: 0)
-  --dump-base-dir PATH      Remote dump base dir (default: /home/jd/blake)
+  --dump-base-dir PATH      Remote dump base dir (default: LOG_DIR/stack-dumps)
   --alert-on-hang           Print HANG_DETECTED marker to stdout when hang detected
   -h, --help                Show help
 EOF
@@ -98,6 +98,10 @@ if [[ ! -d "$LOG_DIR" ]]; then
     log "log dir not found: $LOG_DIR"
     exit 1
 fi
+
+if [[ -z "$DUMP_BASE_DIR" ]]; then DUMP_BASE_DIR="$LOG_DIR/stack-dumps"; fi
+[[ "$DUMP_BASE_DIR" == /* && "$DUMP_BASE_DIR" != *"'"* && "$DUMP_BASE_DIR" != *$'\n'* ]] || { log 'Invalid dump base directory'; exit 2; }
+[[ "$POLL_INTERVAL" =~ ^[1-9][0-9]*$ && "$HANG_MINUTES" =~ ^[1-9][0-9]*$ && "$MASTER_RANK" =~ ^[0-9]+$ ]] || { log 'Invalid numeric option'; exit 2; }
 
 find_master_host() {
     local idx=0
@@ -240,7 +244,7 @@ dump_host_stacks() {
     local remote_cmd="mkdir -p '${remote_dir}' && pids=\$(${collect_target_pids_cmd}) && if [[ -z \"\$pids\" ]]; then echo NO_PID; exit 0; fi; for pid in \$pids; do xpu_timer_dump_driver --pid \"\$pid\" --dump-path '${remote_dir}' --pyspy --gdb; done"
     local ssh_out=""
     local ssh_rc=0
-    ssh_out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$host" "$remote_cmd" 2>&1) || ssh_rc=$?
+    ssh_out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes "$host" "$remote_cmd" 2>&1) || ssh_rc=$?
     if [[ "$ssh_rc" -ne 0 ]]; then
         log "dump failed on ${host}, rc=${ssh_rc}, output=${ssh_out}"
         return 1

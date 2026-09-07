@@ -19,4 +19,4 @@ skills/
 - 脚本应提供明确输入、错误信息和安全默认值。
 - 新增 Skill 后，在仓库根目录 `README.md` 的内容索引中添加入口。
 
-本目录保存可分发的 Skill 源码。安装到本机时，将目标 Skill 目录复制到 `%USERPROFILE%\.codex\skills\`；系统内置 Skill 和插件缓存不纳入本仓库。
+本目录保存可分发的 Skill 源码。安装到本机时，将目标 Skill 目录复制到 `$CODEX_HOME/skills`（未设置时 Linux/macOS 为 `~/.codex/skills`，Windows 为 `%USERPROFILE%\.codex\skills\`）；系统内置 Skill 和插件缓存不纳入本仓库。

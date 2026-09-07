@@ -19,10 +19,10 @@ description: 面向 MUSA、torch_musa、MCCL 环境的大模型训练性能分�
 4. 优先修复异常 kernel、错误 fallback 和全局同步，再处理低占比的小算子。
 5. 同时报告 step time、目标模块 GPU 时间、峰值显存、loss/梯度和适用边界。
 6. 没有目标 MUSA 设备上的运行结果时，只能声称“静态检查通过”或“方案已接入”，不得声称性能或精度已验证。
-7. 每条 MUSA/GPU 命令前先检查目标卡上的活跃进程、显存占用和任务归属；不得抢占或停止未获授权的任务。
+7. 每次开始 GPU 实验、切换设备或资源状态变化后先检查目标卡上的活跃进程、显存占用和任务归属；不得抢占或停止未获授权的任务。
 8. 将假设来源标成 Trace 驱动、代码审计、平台文档或用户提供经验；来源不同不改变验收门槛。
 9. 先证明优化路径 imported、reachable、default-on、observed 和 fallback，再讨论收益；配置存在不等于 kernel 已执行。
-10. 高风险或高成本优化先形成带 `proposal_id`、`action_id` 的提案。用户尚未授权实现时，只输出提案；实现时一次只落地一个已批准 action。
+10. 高风险或高成本优化先形成带 `proposal_id`、`action_id` 的提案。用户尚未授权实现时先给出可审查提案；已有目标和范围授权时直接推进，避免把内部编号变成重复审批。
 
 ## 工作流
 
@@ -79,10 +79,12 @@ description: 面向 MUSA、torch_musa、MCCL 环境的大模型训练性能分�
 使用以下关系判断重叠和空闲：
 
 ```text
-跨 stream overlap = kernel 累计时间 - GPU active union
+额外并发工作量    = kernel 累计时间 - GPU active union
 GPU idle          = GPU kernel span - GPU active union
 GPU 活跃率         = GPU active union / step wall time
 ```
+
+这些量须按单个 device/rank、同一稳态 step 窗口裁剪后计算。累计时间减区间并集是重复计数的并发工作量，不等于两路以上并发的 wall-time 重叠。通信暴露时间以通信区间减去计算区间并集求差，不能把其他通信也算作被计算隐藏；是否位于关键路径还需结合依赖判断。
 
 通过 correlation id 将 GPU kernel 映射到 runtime launch，再定位到最内层 CPU op、外层 annotation、自定义 autograd function 和 Python 模块。分别统计 exclusive 与 inclusive GPU 时间，避免重复累加嵌套模块。
 
@@ -111,7 +113,7 @@ GPU 活跃率         = GPU active union / step wall time
 
 ### 6. 形成提案、估算收益并排序
 
-使用 Amdahl 思路估算端到端上限：目标模块占 step 的比例，就是完全消除该模块时的理论收益上限。
+使用 Amdahl 思路估算：若可消除的串行关键路径占比为 p、模块加速比为 s，则总加速比为 1 / ((1-p) + p/s)。完全消除时 step time 最多降低 p，总加速上限为 1/(1-p)；不能用累计 GPU 时间占比直接代替 p。
 
 按以下顺序优先处理：
 
@@ -127,7 +129,7 @@ GPU 活跃率         = GPU active union / step wall time
 
 若 Trace 明确显示其他模块占主导，以 Trace 为准调整顺序。
 
-每轮提案默认给 2–3 个候选，并分成低风险配置/路径优化、中风险数据流或融合、高风险 native kernel 或分布式流水。每个 action 至少写明：
+复杂优化可按风险分层提出候选，数量以证据为准；简单修复直接沿用已授权范围。每个需要独立验收的 action 写明：
 
 - `proposal_id`、`action_id` 和假设来源；
 - Trace/代码证据、真实 shape、调用次数和目标代码位置；

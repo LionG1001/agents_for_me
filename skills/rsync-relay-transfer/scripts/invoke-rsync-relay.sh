@@ -17,6 +17,7 @@ EOF
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
 (($# > 0)) || { usage >&2; exit 2; }
+[[ $1 != --help && $1 != -h ]] || { usage; exit 0; }
 action=$1; shift
 [[ $action == check || $action == list || $action == upload || $action == download ]] || die "Unknown action: $action"
 local_path=''; remote_path=''; execute=false
@@ -35,12 +36,16 @@ while (($#)); do
 done
 
 [[ -f $config_path ]] || die "未找到中转站配置：$config_path"
+[[ $remote_path != *'\'* ]] || die 'Use forward slashes in remote paths.'
 [[ ! /$remote_path/ =~ /\.\./ ]] || die 'Remote path cannot contain a parent-directory segment.'
 [[ $remote_path != *$'\n'* && $remote_path != *$'\r'* && $remote_path != *'?'* && $remote_path != *'#'* ]] || die 'Remote path contains a prohibited character.'
 
 mapfile -d '' config_values < <(python3 - "$config_path" <<'PY'
 import json
 import sys
+import re
+import stat
+from pathlib import Path
 
 with open(sys.argv[1], encoding="utf-8") as stream:
     config = json.load(stream)
@@ -48,6 +53,19 @@ required = ("host", "port", "module", "user", "password_file")
 missing = [name for name in required if not config.get(name)]
 if missing:
     raise SystemExit("配置缺少字段：" + ", ".join(missing))
+for name in ("host", "module", "user"):
+    if not isinstance(config[name], str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", config[name]):
+        raise SystemExit("Invalid relay endpoint field: " + name)
+if not isinstance(config["port"], int) or isinstance(config["port"], bool) or not 1 <= config["port"] <= 65535:
+    raise SystemExit("Invalid relay port")
+base = config.get("base_path", "")
+if not isinstance(base, str) or ".." in base.split("/") or any(c in base for c in "\\\r\n?#\0"):
+    raise SystemExit("Invalid relay base_path")
+password_path = Path(config["password_file"])
+if not password_path.is_absolute() or password_path.is_symlink() or not password_path.is_file():
+    raise SystemExit("Password file must be an absolute regular file, not a symlink")
+if password_path.stat().st_mode & 0o077:
+    raise SystemExit("Password file must not be accessible to group/others")
 for name in (*required, "base_path"):
     sys.stdout.write(str(config.get(name, "")) + "\0")
 PY
@@ -81,7 +99,10 @@ case "$action" in
     ;;
   upload)
     [[ -n $local_path && -e $local_path ]] || die '上传操作必须提供存在的 --local-path。'
+    source_had_slash=false
+    [[ $local_path != */ ]] || source_had_slash=true
     local_path=$(realpath "$local_path")
+    if $source_had_slash && [[ -d $local_path ]]; then local_path+=/; fi
     args=(-a --itemize-changes --partial "${common[@]}")
     $execute || args+=(--dry-run)
     exec "$rsync_path" "${args[@]}" -- "$local_path" "$remote_uri"

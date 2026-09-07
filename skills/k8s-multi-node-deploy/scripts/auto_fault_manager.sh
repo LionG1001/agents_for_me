@@ -7,7 +7,7 @@
 #       [--poll-interval 60] [--stale-min 30] [--disk-threshold 85] \
 #       [--error-file ./error_node.txt] [--mccl-bench ./mccl_bench.sh] \
 #       [--dingtalk-webhook URL] [--no-start] [--daemon] [--stop]
-# Hostfile format: see ../hostfile.test
+# Hostfile format: see ../templates/hostfile.example
 
 set -euo pipefail
 
@@ -25,7 +25,7 @@ check_single_instance() {
     if [[ -f "$PID_FILE" ]]; then
         local old_pid
         old_pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
-        if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+        if [[ "$old_pid" =~ ^[0-9]+$ && "$old_pid" -gt 1 ]] && kill -0 "$old_pid" 2>/dev/null && ps -p "$old_pid" -o args= | grep -F -- "$SCRIPT_DIR/auto_fault_manager.sh" >/dev/null; then
             log "Another instance is already running (PID: $old_pid), exiting"
             log "Use '$0 --stop' to stop the running instance first"
             exit 0
@@ -43,7 +43,9 @@ write_pid_file() {
 
 # 清理 PID 文件
 cleanup_pid_file() {
-    rm -f "$PID_FILE"
+    if [[ -f "$PID_FILE" && $(cat "$PID_FILE") == "$$" ]]; then
+        rm -f -- "$PID_FILE"
+    fi
 }
 
 # 通过集群锁 owner 信息停止远端（或本机）正在运行的 manager
@@ -110,13 +112,13 @@ stop_instance() {
             [[ -z "$pid_file" ]] && continue
             local old_pid
             old_pid=$(cat "$pid_file" 2>/dev/null || echo "")
-            if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+            if [[ "$old_pid" =~ ^[0-9]+$ && "$old_pid" -gt 1 ]] && kill -0 "$old_pid" 2>/dev/null && ps -p "$old_pid" -o args= | grep -F -- "$SCRIPT_DIR/auto_fault_manager.sh" >/dev/null; then
                 log "Stopping running instance (PID: $old_pid, file: $pid_file)..."
                 kill -USR1 "$old_pid" 2>/dev/null || true
                 local wait_count=0
                 while kill -0 "$old_pid" 2>/dev/null && [[ $wait_count -lt 10 ]]; do
                     sleep 1
-                    ((wait_count++))
+                    wait_count=$((wait_count + 1))
                 done
                 if kill -0 "$old_pid" 2>/dev/null; then
                     log "Force killing process (PID: $old_pid)..."
@@ -140,14 +142,14 @@ stop_instance() {
     if [[ -f "$PID_FILE" ]]; then
         local old_pid
         old_pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
-        if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+        if [[ "$old_pid" =~ ^[0-9]+$ && "$old_pid" -gt 1 ]] && kill -0 "$old_pid" 2>/dev/null && ps -p "$old_pid" -o args= | grep -F -- "$SCRIPT_DIR/auto_fault_manager.sh" >/dev/null; then
             log "Stopping running instance (PID: $old_pid)..."
             kill -USR1 "$old_pid" 2>/dev/null || true
             # 等待进程退出
             local wait_count=0
             while kill -0 "$old_pid" 2>/dev/null && [[ $wait_count -lt 10 ]]; do
                 sleep 1
-                ((wait_count++))
+                wait_count=$((wait_count + 1))
             done
             if kill -0 "$old_pid" 2>/dev/null; then
                 log "Force killing process..."
@@ -246,6 +248,8 @@ START_TRAIN=1
 STOP_ALL_NOW=0
 STOP_MANAGERS=0
 STOP_SELF=0
+ALLOW_POOL_CLEANUP=0
+MAX_RESTARTS=3
 # XID 数字白名单（配置文件可覆盖，例如："2000008,2000010"）
 DMESG_XID_NUMBERS=""
 # dmesg 匹配模式（可通过 --dmesg-xid-pattern(s) 覆盖）
@@ -312,7 +316,7 @@ normalize_webhook() {
 usage() {
     cat <<EOF
 Usage: $0 --hostfile HOSTFILE --worldsize N [--logdir LOG_DIR] [--output-dir OUTPUT_DIR] [options]
-Hostfile format: see ../hostfile.test
+Hostfile format: see ../templates/hostfile.example
 
 Options:
     --config PATH           Optional config file (default: ./auto_fault_manager.conf)
@@ -345,7 +349,7 @@ Options:
     --daemon                Run in daemon mode (background, survives terminal close)
     --stop                  Stop the running instance
     --skip-initial-netcheck Skip mccl netcheck during initial fault detection
-    --netcheck-timeout SEC  Timeout for mccl netcheck in seconds (default: 1800)
+    --netcheck-timeout SEC  Timeout for mccl netcheck in seconds (default: 300)
     --dmesg-xid-pattern PAT Pattern for dmesg XID check (regex supported)
     --dmesg-xid-patterns CSV Comma-separated patterns (regex supported)
     --dmesg-xid-numbers CSV Comma-separated XID numbers to match (e.g., 2000008,2000010)
@@ -353,6 +357,8 @@ Options:
         --log-error-patterns CSV Comma-separated log error patterns (regex supported)
         --remote-proc-pattern REGEX Remote train process regex for pgrep (default: /usr/bin/python|/usr/local/bin/torchrun|train.py)
     --startup-grace SEC     Grace period after train start before process check (default: 120)
+    --allow-pool-cleanup    Authorize cleanup of ALL GPU processes in the dedicated hostfile pool
+    --max-restarts N        Maximum automatic restarts (default: 3)
     --ha-instances N        Start N HA instances across hosts (default: 1)
     --ha-spawned            Internal flag to avoid recursive HA spawn
 EOF
@@ -429,6 +435,8 @@ fi
 # 命令行参数解析（会覆盖配置文件的值）
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --allow-pool-cleanup) ALLOW_POOL_CLEANUP=1; shift;;
+        --max-restarts) MAX_RESTARTS="$2"; shift 2;;
         --config) CONFIG_FILE="$2"; shift 2;;
         --hostfile) HOSTFILE="$2"; shift 2;;
         --worldsize) WORLDSIZE="$2"; shift 2;;
@@ -475,6 +483,13 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1"; usage; exit 1;;
     esac
 done
+
+# --no-start still performs fault detection and pool cleanup; it is not read-only.
+if [[ "$STOP_SELF" -ne 1 && "$STOP_MANAGERS" -ne 1 && "$ALLOW_POOL_CLEANUP" -ne 1 ]]; then
+    echo 'Dedicated-pool operation requires --allow-pool-cleanup; review hostfile ownership first.' >&2
+    exit 2
+fi
+[[ "$MAX_RESTARTS" =~ ^[0-9]+$ ]] || { echo 'Invalid --max-restarts' >&2; exit 2; }
 
 # 规范化 webhook（命令行参数覆盖后）
 normalize_webhook
@@ -574,7 +589,7 @@ build_instance_tag() {
     fi
 }
 
-# 读取有效 host 行（忽略注释与空行，格式参考 ../hostfile.test）
+# 读取有效 host 行（忽略注释与空行，格式参考 ../templates/hostfile.example）
 read_host_lines() {
     local lines
     lines=$(grep -v '^#' "$HOSTFILE" | awk 'NF {print}')
@@ -718,15 +733,18 @@ stop_auto_fault_managers_cluster() {
 
 # 集群级别锁，确保只运行一个 auto_fault_manager（支持 HA 接管）
 write_cluster_lock_owner() {
-    printf '%s\n' "$CLUSTER_LOCK_TOKEN" > "$CLUSTER_LOCK_OWNER_FILE" || true
+    printf '%s\n' "$CLUSTER_LOCK_TOKEN" > "$CLUSTER_LOCK_OWNER_FILE"
 }
 
 heartbeat_cluster_lock() {
     if [[ -z "$CLUSTER_LOCK_TOKEN" ]]; then
         return
     fi
-    if [[ -f "$CLUSTER_LOCK_OWNER_FILE" ]] && grep -qx "$CLUSTER_LOCK_TOKEN" "$CLUSTER_LOCK_OWNER_FILE"; then
-        date +%s > "$CLUSTER_LOCK_HEARTBEAT_FILE" || true
+    if [[ -f "$CLUSTER_LOCK_OWNER_FILE" ]] && grep -Fxq -- "$CLUSTER_LOCK_TOKEN" "$CLUSTER_LOCK_OWNER_FILE"; then
+        date +%s > "$CLUSTER_LOCK_HEARTBEAT_FILE"
+    else
+        log "Cluster lock ownership lost; stopping manager"
+        exit 1
     fi
 }
 
@@ -760,24 +778,12 @@ is_cluster_lock_stale() {
     return 1
 }
 
-prompt_cleanup_resources() {
-    local reason="$1"
-    if [[ "$DAEMON_MODE" -eq 1 || ! -t 0 ]]; then
-        return 1
-    fi
-    local ans
-    read -r -p "Stale lock detected (${reason}). Clean resources for current tag only and continue? [y/N]: " ans
-    case "$ans" in
-        y|Y|yes|YES) return 0;;
-        *) return 1;;
-    esac
-}
-
 acquire_cluster_lock() {
     CLUSTER_LOCK_TOKEN="$(hostname)-$$-$(date +%s)"
     CLUSTER_LOCK_TAKEOVER=0
+    mkdir -p -- "$(dirname "$CLUSTER_LOCK_PATH")"
     while true; do
-        if mkdir -p "$CLUSTER_LOCK_PATH" 2>/dev/null; then
+        if mkdir "$CLUSTER_LOCK_PATH" 2>/dev/null; then
             write_cluster_lock_owner
             heartbeat_cluster_lock
             log "Cluster lock acquired: $CLUSTER_LOCK_PATH"
@@ -790,59 +796,11 @@ acquire_cluster_lock() {
         fi
 
         if is_cluster_lock_stale; then
-            local last_ts now age
-            last_ts=$(get_cluster_lock_last_ts)
-            now=$(date +%s)
-            if [[ "$last_ts" =~ ^[0-9]+$ && "$last_ts" -gt 0 ]]; then
-                age=$((now - last_ts))
-            else
-                age=-1
-            fi
-            local has_owner=0
-            local has_heartbeat=0
-            if [[ -f "$CLUSTER_LOCK_OWNER_FILE" ]]; then
-                has_owner=1
-            fi
-            if [[ -f "$CLUSTER_LOCK_HEARTBEAT_FILE" ]]; then
-                has_heartbeat=1
-            fi
-
-            log "Cluster lock stale, attempting takeover ($CLUSTER_LOCK_PATH ${owner_msg}, age=${age}s)"
-            if [[ "$has_owner" -eq 0 && "$has_heartbeat" -eq 0 ]]; then
-                log "Orphan lock detected (no owner/heartbeat), auto cleanup"
-            else
-                if prompt_cleanup_resources "lock=${CLUSTER_LOCK_PATH}, age=${age}s"; then
-                    log "User approved cleanup, removing stale lock dir"
-                else
-                    if [[ "$HA_INSTANCES" -gt 1 || "$HA_SPAWNED" -eq 1 ]]; then
-                        log "HA mode: auto cleanup stale lock (age=${age}s)"
-                    else
-                        log "Cleanup declined or not interactive; exiting"
-                        exit 1
-                    fi
-                fi
-            fi
-            rm -rf "$CLUSTER_LOCK_PATH" >/dev/null 2>&1 || true
-            if [[ -d "$CLUSTER_LOCK_PATH" ]]; then
-                log "Error: failed to remove stale lock dir: $CLUSTER_LOCK_PATH"
-                log "Error: please remove it manually if no instance is running"
-                exit 1
-            fi
-            sleep 1
-            if mkdir -p "$CLUSTER_LOCK_PATH" 2>/dev/null; then
-                CLUSTER_LOCK_TAKEOVER=1
-                write_cluster_lock_owner
-                heartbeat_cluster_lock
-                log "Cluster lock takeover successful: $CLUSTER_LOCK_PATH"
-                return 0
-            else
-                log "Error: failed to create lock dir after cleanup: $CLUSTER_LOCK_PATH"
-                log "Error: check permissions or parent path, then retry"
-                exit 1
-            fi
-        else
-            log "Cluster lock held, entering standby ($CLUSTER_LOCK_PATH ${owner_msg})"
+            log "Stale heartbeat is not proof of owner death; preserve lock and verify owner before manual recovery: $CLUSTER_LOCK_PATH ${owner_msg}"
+            return 1
         fi
+        log "Cluster lock held, entering standby ($CLUSTER_LOCK_PATH ${owner_msg})"
+
         sleep "$CLUSTER_LOCK_WAIT_SEC"
     done
 }
@@ -851,8 +809,9 @@ release_cluster_lock() {
     if [[ -z "$CLUSTER_LOCK_TOKEN" ]]; then
         return
     fi
-    if [[ -f "$CLUSTER_LOCK_OWNER_FILE" ]] && grep -qx "$CLUSTER_LOCK_TOKEN" "$CLUSTER_LOCK_OWNER_FILE"; then
-        rm -rf "$CLUSTER_LOCK_PATH" >/dev/null 2>&1 || true
+    if [[ -f "$CLUSTER_LOCK_OWNER_FILE" ]] && grep -Fxq -- "$CLUSTER_LOCK_TOKEN" "$CLUSTER_LOCK_OWNER_FILE"; then
+        rm -f -- "$CLUSTER_LOCK_OWNER_FILE" "$CLUSTER_LOCK_HEARTBEAT_FILE"
+        rmdir -- "$CLUSTER_LOCK_PATH" 2>/dev/null || true
     fi
 }
 
@@ -864,30 +823,26 @@ check_process_exit() {
     if [[ ! -f "$hosts_file" ]]; then
         hosts_file="$HOSTFILE"
     fi
-    local first_line
-    first_line=$(grep -v '^#' "$hosts_file" | awk 'NF {print; exit}')
-    if [[ -z "$first_line" ]]; then
-        log "Process check: no hosts found in $hosts_file"
-        return 1
-    fi
-
-    local host
-    host=$(get_host_from_line "$first_line")
-
-    local has_process=0
-    local gmi_output
-    gmi_output=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" "mthreads-gmi 2>/dev/null" 2>/dev/null || true)
-
-    if gmi_all_gpus_over_threshold "$gmi_output" 500; then
-        has_process=1
-    fi
-
-    if [[ "$has_process" -eq 0 ]]; then
-        log "Process check: FAULT - $host GPU mem < 500MB"
+    local line host count=0
+    while read -r line; do
+        [[ -z "$line" ]] && continue
+        host=$(get_host_from_line "$line")
+        count=$((count + 1))
+        local gmi_output
+        if ! gmi_output=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 "$host" "mthreads-gmi" 2>/dev/null); then
+            log "Process check: unknown - query failed on $host"
+            return 0
+        fi
+        if ! gmi_all_gpus_over_threshold "$gmi_output" 500; then
+            log "Process check: incomplete GPU activity on $host"
+            return 0
+        fi
+    done < <(awk 'NF && $1 !~ /^#/ {print}' "$hosts_file")
+    if [[ "$count" -ne "$WORLDSIZE" ]]; then
+        log "Process check: host count does not match worldsize"
         return 0
     fi
-
-    log "Process check: ok"
+    log "GPU activity observed on all selected hosts; this is not rank/step completion evidence"
     return 1
 }
 
@@ -1023,10 +978,11 @@ stop_train() {
     fi
     log "Stopping existing processes via $STOP_ALL $HOSTFILE $MAX_PARALLEL"
     local stop_rc=0
-    timeout 120 bash "$STOP_ALL" "$HOSTFILE" "$MAX_PARALLEL" || stop_rc=$?
+    timeout 120 bash "$STOP_ALL" "$HOSTFILE" "$MAX_PARALLEL" --execute --all-gpu-processes || stop_rc=$?
     if [[ "$stop_rc" -eq 124 ]]; then
         log "Warning: stop_all.sh timed out after 120s, some nodes may not have been cleaned"
     fi
+    return "$stop_rc"
 }
 
 # 解析路径参数
@@ -1119,8 +1075,8 @@ start_ha_instances
 # 仅执行 stop_all 并退出
 if [[ "$STOP_ALL_NOW" -eq 1 ]]; then
     log "Stop-all requested, invoking $STOP_ALL"
-    stop_train || true
-    exit 0
+    stop_train
+    exit $?
 fi
 
 # 仅停止所有 auto_fault_manager 并退出
@@ -1400,17 +1356,18 @@ SKIP_INITIAL_NETCHECK="${SKIP_INITIAL_NETCHECK:-0}"
 
 run_netcheck() {
     if [[ ! -f "$MCCL_BENCH" ]]; then
-        log "mccl_bench.sh not found: $MCCL_BENCH, skipping netcheck"
-        return
+        log "mccl_bench.sh not found: $MCCL_BENCH"
+        return 1
     fi
 
     # 在运行 mccl_bench 前先停止所有 GPU 进程，确保资源可用
     log "Stopping all GPU processes before netcheck..."
     if [[ -f "$STOP_ALL" ]]; then
-        timeout 120 bash "$STOP_ALL" "$HOSTFILE" "$MAX_PARALLEL" || true
+        timeout 120 bash "$STOP_ALL" "$HOSTFILE" "$MAX_PARALLEL" --execute --all-gpu-processes || return $?
         sleep 30  # 等待进程完全退出
     else
-        log "Warning: stop_all.sh not found, proceeding without cleanup"
+        log "stop_all.sh missing; refusing to run netcheck without verified cleanup"
+        return 1
     fi
 
     log "Running mccl netcheck (timeout: ${NETCHECK_TIMEOUT}s)..."
@@ -1487,9 +1444,12 @@ run_netcheck() {
             add_error_node "$ip" "mccl_netcheck"
         done
         log "Netcheck bad IPs: $bad_ips"
-    else
+    elif [[ "$exit_code" -eq 0 ]]; then
         log "Netcheck completed, no bad IPs found"
+    else
+        log "Netcheck failed without isolated bad IPs; refusing to infer a healthy pool"
     fi
+    [[ "$exit_code" -eq 0 && -z "$bad_ips" ]]
 }
 
 # 收集所有节点的 dmesg -T 信息并打包到日志目录
@@ -1533,7 +1493,7 @@ collect_dmesg_logs() {
             local host_log="${dmesg_dir}/${host}_${timestamp}.dmesg.log"
             local ssh_output=""
             local ssh_rc=0
-            ssh_output=$(ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o ServerAliveInterval=5 "$host" "dmesg -T 2>&1" 2>&1) || ssh_rc=$?
+            ssh_output=$(ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o ServerAliveInterval=5 "$host" "dmesg -T 2>&1" 2>&1) || ssh_rc=$?
             if [[ $ssh_rc -eq 0 && -n "$ssh_output" ]]; then
                 echo "$ssh_output" > "$host_log"
             else
@@ -2066,6 +2026,10 @@ monitor_loop() {
                 log "Hang detected with --hang-no-kill, keep training processes alive after dump"
                 stop_hang_detect
             else
+                if [[ "$RESTART_COUNT" -ge "$MAX_RESTARTS" ]]; then
+                    log "Restart limit reached; preserving evidence for review"
+                    return 1
+                fi
                 stop_hang_detect
                 fault_detect
                 if [[ "$START_TRAIN" -eq 1 ]]; then
@@ -2073,10 +2037,10 @@ monitor_loop() {
                     LOG_DIR="${LOG_DIR_BASE}_r${RESTART_COUNT}"
                     mkdir -p "$LOG_DIR"
                     log "Restart #${RESTART_COUNT}, updated log dir: $LOG_DIR"
-                    stop_train || true
+                    stop_train || return $?
                     if start_train; then
                         if check_recovery_by_process "$STARTUP_GRACE"; then
-                            send_alert "[恢复成功] $(date '+%F %T') 重启#${RESTART_COUNT} 原因:${reason_str}"
+                            send_alert "[GPU 活动恢复，待核验 rank 进度] $(date '+%F %T') 重启#${RESTART_COUNT} 原因:${reason_str}"
                         else
                             send_alert "[恢复失败] $(date '+%F %T') 重启#${RESTART_COUNT} 原因:${reason_str} 请人工检查"
                         fi

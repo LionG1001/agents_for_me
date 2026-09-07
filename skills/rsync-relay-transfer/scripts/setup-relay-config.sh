@@ -7,15 +7,18 @@ Usage: setup-relay-config.sh --host HOST --port PORT --module MODULE --user USER
 
 Options:
   --base-path PATH       Base path inside the rsync module
+  --replace             Replace an existing configuration after review
   --config-dir PATH      Config directory (default: ~/.config/rsync-relay-transfer)
 EOF
 }
 
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
+replace=false
 relay_host=''; port=''; module=''; relay_user=''; base_path=''; config_dir=${XDG_CONFIG_HOME:-$HOME/.config}/rsync-relay-transfer
 while (($#)); do
   case "$1" in
+    --replace) replace=true; shift ;;
     --host) relay_host=${2-}; shift 2 ;;
     --port) port=${2-}; shift 2 ;;
     --module) module=${2-}; shift 2 ;;
@@ -29,19 +32,29 @@ done
 
 [[ -n $relay_host && -n $module && -n $relay_user ]] || die '--host, --module, and --user are required.'
 [[ $port =~ ^[0-9]+$ ]] && ((port >= 1 && port <= 65535)) || die '--port must be between 1 and 65535.'
-[[ ! $relay_host =~ [[:space:]/@:] && ! $module =~ [[:space:]/@:] && ! $relay_user =~ [[:space:]/@:] ]] || die 'Host, module, and user cannot contain whitespace or URI separators.'
+[[ $relay_host =~ ^[A-Za-z0-9_.-]+$ && $module =~ ^[A-Za-z0-9_.-]+$ && $relay_user =~ ^[A-Za-z0-9_.-]+$ ]] || die 'Host, module, and user cannot contain whitespace or URI separators.'
+[[ $base_path != *'\'* && $base_path != *$'\r'* && $base_path != *$'\n'* && $base_path != *'?'* && $base_path != *'#'* ]] || die 'Invalid base path.'
 [[ ! /$base_path/ =~ /\.\./ ]] || die 'Base path cannot contain a parent-directory segment.'
 
+[[ ! -L $config_dir && ! -L $config_dir/password.txt && ! -L $config_dir/config.json ]] || die 'Refusing symlink configuration paths.'
+if [[ -e $config_dir/password.txt || -e $config_dir/config.json ]] && ! $replace; then
+  die 'Configuration exists; review before using --replace.'
+fi
 IFS= read -r -s -p '请输入 rsync 中转站密码: ' password
 printf '\n' >&2
 [[ -n $password ]] || die '密码不能为空。'
 
 umask 077
 mkdir -p "$config_dir"
+chmod 700 "$config_dir"
 config_dir=$(realpath "$config_dir")
 password_file=$config_dir/password.txt
 config_file=$config_dir/config.json
-printf '%s\n' "$password" >"$password_file"
+password_tmp=$(mktemp "$config_dir/.password.XXXXXX")
+trap 'rm -f -- "$password_tmp"' EXIT
+printf '%s\n' "$password" >"$password_tmp"
+chmod 600 "$password_tmp"
+mv -f -- "$password_tmp" "$password_file"
 unset password
 chmod 600 "$password_file"
 

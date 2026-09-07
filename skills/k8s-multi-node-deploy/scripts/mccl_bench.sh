@@ -4,6 +4,10 @@
 # --worldsize N: Split hostfile into groups of N nodes each and run tests in parallel
 # --netcheck: Network check mode - test pairs of nodes and identify problematic IPs
 
+if [[ $# -eq 0 || $1 == --help || $1 == -h ]]; then
+    echo 'Usage: mccl_bench.sh HOSTFILE [--worldsize N] [--netcheck]'
+    [[ $# -gt 0 ]] && exit 0 || exit 2
+fi
 HOSTFILE="$1"
 WORLDSIZE=""
 NETCHECK=0
@@ -50,10 +54,10 @@ run_mpi_test() {
                 echo "[Group $group_id] Log file: $output_file"
         fi
 
-        timeout "$timeout_sec" /usr/local/openmpi/bin/mpirun -hostfile "$hostfile" \
+        timeout "$timeout_sec" "${MPIEXEC:-/usr/local/openmpi/bin/mpirun}" -hostfile "$hostfile" \
                 -np "$total_slots" \
                 --allow-run-as-root \
-                --timeout 90 \
+                --timeout "$timeout_sec" \
                 --verbose \
                 -mca plm_base_verbose 5 \
                 -mca orte_abort_timeout 300 \
@@ -70,6 +74,7 @@ run_mpi_test() {
         /usr/local/musa/mccl_test/all_reduce_perf -n 3 -b 512M -e 20480M -f 2 -g 1 -t 1 > "$output_file" 2>&1
 
         local exit_code=$?
+        if [[ $exit_code -ne 0 ]]; then echo "ERROR: MPI exit code $exit_code" >> "$output_file"; fi
         if [[ $exit_code -eq 0 ]]; then
             echo "[Group $group_id] Completed"
         elif [[ $exit_code -eq 124 ]]; then
@@ -81,6 +86,7 @@ run_mpi_test() {
         else
             echo "[Group $group_id] Completed with exit code $exit_code"
         fi
+        return "$exit_code"
 }
 
 # Check if hostfile exists
@@ -90,10 +96,19 @@ if [[ ! -f "$HOSTFILE" ]]; then
 fi
 
 # Create log directory with mccl prefix and timestamp
-LOG_DIR="mccl_logs_$(date +%Y%m%d_%H%M%S)"
+LOG_DIR="mccl_logs_$(date +%Y%m%d_%H%M%S)_$$"
 mkdir -p "$LOG_DIR"
 echo "Log directory: $LOG_DIR"
 
+normalized=$(mktemp)
+awk 'NF && $1 !~ /^#/ {print}' "$HOSTFILE" > "$normalized"
+if ! awk 'NF != 2 || $1 !~ /^[A-Za-z0-9][A-Za-z0-9.-]*$/ || $2 !~ /^slots=[1-9][0-9]*$/ || seen[$1]++ {bad=1} END {exit bad || NR == 0}' "$normalized"; then
+    rm -f -- "$normalized"
+    echo 'Invalid, duplicate or empty hostfile' >&2
+    exit 2
+fi
+HOSTFILE="$normalized"
+trap 'rm -f -- "$normalized"' EXIT
 total_lines=$(wc -l < "$HOSTFILE")
 echo "Total nodes in hostfile: $total_lines"
 
@@ -137,7 +152,7 @@ if [[ $NETCHECK -eq 1 ]]; then
 
     # Create temporary directory
     tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    trap 'rm -f -- "$normalized" "$tmp_dir"/*.hostfile; rmdir -- "$tmp_dir"' EXIT
 
     # Read all hosts into array
     mapfile -t all_hosts < "$HOSTFILE"
@@ -258,6 +273,7 @@ if [[ $NETCHECK -eq 1 ]]; then
     declare -A phase2_ips       # group_id -> "test_ip reference_ip"
     pids=()
     group_id=0
+    declare -A phase2_map
 
     # Use available passed IPs as references
     num_passed=${#passed_ips[@]}
@@ -285,8 +301,13 @@ if [[ $NETCHECK -eq 1 ]]; then
         pids+=($!)
 
         # Store mapping
-        eval "phase2_map_$group_id=\"$test_ip\""
+        phase2_map[$group_id]="$test_ip"
         failed_idx=$((failed_idx + 1))
+        # A reference node participates in at most one active test.
+        if ((failed_idx % num_passed == 0)); then
+            for pid in "${pids[@]}"; do wait "$pid" || true; done
+            pids=()
+        fi
     done
 
     # Wait for phase 2
@@ -301,7 +322,7 @@ if [[ $NETCHECK -eq 1 ]]; then
     confirmed_good_ips=()
 
     for ((gid=1; gid<=group_id; gid++)); do
-        eval "tested_ip=\${phase2_map_$gid}"
+        tested_ip="${phase2_map[$gid]}"
         logfile="${phase2_logfiles[$gid]}"
 
         if check_group_log "$logfile"; then
@@ -341,6 +362,7 @@ if [[ $NETCHECK -eq 1 ]]; then
         echo "Phase 1 failures may be due to pair-specific issues."
     fi
 
+    [[ ${#confirmed_bad_ips[@]} -eq 0 && ${#failed_ips[@]} -eq 0 ]] || exit 1
     exit 0
 fi
 
@@ -348,7 +370,8 @@ if [[ -z "$WORLDSIZE" ]]; then
     # No worldsize specified, run with original hostfile
     echo "No worldsize specified, running with all nodes..."
     node_count=$total_lines
-    run_mpi_test "$HOSTFILE" "all"
+    run_mpi_test "$HOSTFILE" "all" || exit $?
+    NETCHECK_AVG_BW_MIN=0 check_group_log "${LOG_DIR}/mccl_allreduce_groupall.txt" || exit 1
 else
     # Validate worldsize
     if ! [[ "$WORLDSIZE" =~ ^[0-9]+$ ]] || [[ "$WORLDSIZE" -lt 1 ]]; then
@@ -366,7 +389,7 @@ else
 
     # Create temporary directory for split hostfiles
     tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    trap 'rm -f -- "$normalized" "$tmp_dir"/*.hostfile; rmdir -- "$tmp_dir"' EXIT
 
     # Split hostfile into groups
     split -l "$WORLDSIZE" -d --additional-suffix=.hostfile "$HOSTFILE" "$tmp_dir/group_"
@@ -420,6 +443,11 @@ else
     # Second pass: check for errors and performance anomalies
     for gid in "${!group_hostfiles[@]}"; do
         logfile="${LOG_DIR}/mccl_allreduce_group${gid}.txt"
+        if [[ ! -f "$logfile" ]]; then
+            error_found=1
+            echo "Missing group log: $logfile"
+            continue
+        fi
         if [[ -f "$logfile" ]]; then
                 has_error=0
                 error_msgs=""

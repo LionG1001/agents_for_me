@@ -23,6 +23,12 @@ foreach ($name in @('host', 'port', 'module', 'user', 'password_file')) {
 if (-not (Test-Path -LiteralPath $config.password_file -PathType Leaf)) {
     throw '配置中指定的密码文件不存在。'
 }
+foreach ($name in @('host', 'module', 'user')) {
+    if ($config.$name -notmatch '^[A-Za-z0-9_.-]+$') { throw "Invalid relay endpoint field: $name" }
+}
+if ($config.port -notmatch '^[0-9]+$' -or [int]$config.port -lt 1 -or [int]$config.port -gt 65535) { throw 'Invalid relay port.' }
+if ($config.base_path -match '(^|[\\/])\.\.([\\/]|$)|[\r\n?#]') { throw 'Invalid relay base path.' }
+if ((Get-Item -LiteralPath $config.password_file).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing symlink password file.' }
 if ($RemotePath -match '(^|[\\/])\.\.([\\/]|$)') {
     throw 'RemotePath 不能包含父目录片段。'
 }
@@ -67,7 +73,7 @@ switch ($Action) {
         $resolved = Resolve-Path -LiteralPath $LocalPath -ErrorAction Stop
         $arguments = @('-a', '--itemize-changes', '--partial') + $common
         if (-not $Execute) { $arguments += '--dry-run' }
-        $arguments += @('--', $resolved.Path, $remoteUri)
+        $arguments += @('--', $(if ($LocalPath.EndsWith('/') -or $LocalPath.EndsWith('\')) { $resolved.Path.TrimEnd('/\') + '/' } else { $resolved.Path }), $remoteUri)
         & $rsync.Source @arguments
     }
     'download' {
