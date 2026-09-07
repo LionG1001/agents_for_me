@@ -32,8 +32,7 @@ agents_for_me/
 - [远程容器工作区](skills/remote-container-workspace/SKILL.md)
 - [Rsync 公网中转安全传输](skills/rsync-relay-transfer/SKILL.md)
 
-## 维护与审计
+## 维护与验证
 
-- [2026-09-07 全量 User Skills 审计](docs/audits/2026-09-07-user-skills.md)
 - 离线回归：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`
 - 仓库验证：`bash skills/publish-agent-assets/scripts/validate-repository.sh .`（Python 3.10+、PyYAML）
