@@ -19,7 +19,9 @@ Treat `%USERPROFILE%\.codex\skills\.system`, `$HOME/.codex/skills/.system`, and 
 
 ## Synchronize assets
 
-Choose the script for the local platform and copy inputs into the repository's canonical layout.
+Both wrappers use `scripts/assets.py` (Python 3.10+; validation also requires PyYAML in that interpreter). PowerShell defaults to `python` and accepts `-PythonExecutable`; bash uses `python3`. Resolve dependencies in the authorized environment, without silently installing packages.
+
+Inspect the destination checkout root, branch, HEAD, dirty paths and remote before copying; use an isolated worktree if needed. Choose the script for the local platform and copy inputs into the repository's canonical layout.
 
 Linux/macOS with bash:
 
@@ -38,6 +40,8 @@ Windows with PowerShell:
   -Source "<path-to-skill>" `
   -RepositoryRoot "<path-to-agents_for_me>"
 ```
+
+Preview with `--dry-run` / `-DryRun` (`-WhatIf` is also supported). The shared implementation rejects source/destination symlinks and junctions, overlapping paths and credential filenames; it skips system/VCS/build/cache material. It supports normal checkouts and Git worktrees. Review destination-only files rather than deleting them automatically.
 
 Pass repeated `--source` arguments in bash or multiple paths to `-Source` in PowerShell when collecting several Skills. Use `--update`/`-Update` only when the destination already exists and the user requested an update. The update mode overwrites matching files but does not delete destination-only files; review stale files manually.
 
@@ -60,20 +64,20 @@ Windows with PowerShell:
   -RepositoryRoot "<path-to-agents_for_me>"
 ```
 
-Stop if validation reports missing `SKILL.md`, invalid frontmatter, name mismatches, unresolved relative Markdown links, TODO placeholders, symbolic links, or likely credentials. Inspect every finding rather than suppressing it broadly.
+Stop if validation reports missing `SKILL.md`, invalid frontmatter, name mismatches, unresolved relative Markdown links, TODO placeholders, symbolic links, or likely credentials. The scanner checks UTF-8 files regardless of extension or size and reports binary assets for manual handling. Pattern checks cannot certify absence of every secret; review newly published scripts, examples and references as well. Inspect findings without printing matched secret values.
 
 Also inspect `git status -sb`, the complete intended diff, and `git diff --check`. Stage explicit paths only.
 
 ## Publish safely
 
-1. Verify `gh auth status` succeeds without printing a token.
-2. Pull or fetch the remote state and confirm the intended base branch.
-3. From the default branch, create `agent/<short-description>`.
+1. Verify `gh auth status` succeeds without retrieving or printing the token itself.
+2. Fetch the verified target remote and confirm the default/intended base branch; preserve unrelated local work and commits.
+3. Start `agent/<short-description>` from the verified remote base; reuse a suitable existing task branch when appropriate.
 4. Stage only the validated asset directories and index files.
 5. Commit with a terse description.
 6. Push with upstream tracking.
-7. Open a draft pull request unless the user explicitly requests direct publication or a ready PR.
-8. Report the branch, commit, validation result, and PR URL.
+7. For a review workflow, open a draft pull request. If the user requests direct publication, follow that authorized destination; do not add a new approval round. Repository permissions and user intent determine the flow.
+8. Verify the remote branch SHA matches the local commit after push, then report branch, commit, validation limits and PR URL (if created). Synchronize approved improvements back to the active user skill installation and compare file hashes; preserve a rollback copy and avoid overwriting concurrent edits.
 
 Never place GitHub credentials, API tokens, SSH private keys, passwords, or full authorization headers in repository files, commit messages, command arguments, or PR text. Keep GitHub authentication in `gh` and the operating-system credential store.
 

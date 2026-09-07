@@ -32,6 +32,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($HostName -notmatch '^[A-Za-z0-9][A-Za-z0-9.:-]*$' -or $UserName -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]*$') { throw 'Invalid SSH host or user.' }
+if ($Container -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*$') { throw 'Invalid container name.' }
+if (-not $WorkDir.StartsWith('/')) { throw 'WorkDir must be an absolute container path.' }
+
 
 function ConvertTo-ShSingleQuoted {
     param([Parameter(Mandatory)][string]$Value)
@@ -92,7 +96,7 @@ try {
         }
 
         $askPassPath = Join-Path ([IO.Path]::GetTempPath()) ("rcw-askpass-{0}.cmd" -f [guid]::NewGuid())
-        Set-Content -LiteralPath $askPassPath -Value '@echo off', 'echo %RCW_ASKPASS_PASSWORD%' -Encoding Ascii
+        Set-Content -LiteralPath $askPassPath -Value '@echo off', 'powershell.exe -NoProfile -Command "[Console]::WriteLine([Environment]::GetEnvironmentVariable(''RCW_ASKPASS_PASSWORD''))"' -Encoding Ascii
         $env:RCW_ASKPASS_PASSWORD = $password
         $env:SSH_ASKPASS = $askPassPath
         $env:SSH_ASKPASS_REQUIRE = 'force'

@@ -1,0 +1,6 @@
+interface:
+  display_name: "多集群访问"
+  short_description: "统一管理 VPN、堡垒机、目标服务器和远端容器任务连接"
+  default_prompt: "使用 $multi-cluster-access 检查或连接已配置的集群、目标机器或远端任务。"
+policy:
+  allow_implicit_invocation: true

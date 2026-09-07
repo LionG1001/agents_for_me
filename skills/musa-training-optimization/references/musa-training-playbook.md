@@ -37,11 +37,13 @@
 ### 1.2 GPU 时间口径
 
 ```text
-跨 stream overlap = kernel 累计时间 - GPU active union
+额外并发工作量    = kernel 累计时间 - GPU active union
 GPU idle          = GPU kernel span - GPU active union
 GPU 活跃率         = GPU active union / step wall time
 近似暴露通信       = 通信 GPU 时间 - 与其他 stream 的重叠时间
 ```
+
+这些量须按单个 device/rank、同一稳态 step 窗口裁剪后计算。累计时间减区间并集是重复计数的并发工作量，不等于两路以上并发的 wall-time 重叠。通信暴露时间以通信区间减去计算区间并集求差，不能把其他通信也算作被计算隐藏；是否位于关键路径还需结合依赖判断。
 
 Kernel 累计时间允许大于 wall time，因为多个 stream 可以并发。Inclusive 模块可能嵌套，不得直接求和。
 
@@ -309,7 +311,7 @@ export MUSA_EXECUTE_COUNT=1
 
 ### 10.2 Proposal contract
 
-每轮默认给 2–3 个 action，按低、中、高风险分层：
+按证据给出有实际价值的 action；风险分层和数量随任务调整：
 
 ```markdown
 proposal_id: PERF-YYYYMMDD-NN
@@ -330,7 +332,7 @@ rollback_when: <precision/perf/OOM/stability condition>
 
 ### 10.3 GPU availability preflight
 
-每条 MUSA/GPU 命令前检查进程、显存、设备健康和任务归属。目标卡忙时，只有在实验条件等价且用户范围允许时才换卡；否则停止并报告。不得以性能测试为由清理未知进程。
+每次开始 GPU 实验、切换设备或资源状态变化后检查进程、显存、设备健康和任务归属。目标卡忙时，只有在实验条件等价且用户范围允许时才换卡；否则停止并报告。不得以性能测试为由清理未知进程。
 
 ## 11. 数据流、layout 与 materialization
 

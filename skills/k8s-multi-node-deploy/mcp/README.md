@@ -6,7 +6,7 @@
 
 ## 使用方法
 
-1. 复制 `bastion-k8s.example.json`（或索引中的 `mcp.example.json`）中的内容
+1. 复制 `bastion-k8s.example.json`中的内容
 2. 粘贴到你的 MCP 客户端配置文件中
 3. 将占位符替换为实际值
 
@@ -45,3 +45,5 @@
 - 不要将真实密码提交到 git
 - 生产环境建议改用 SSH 密钥认证（bastion-k8s-mcp 支持 `BASTION_KEY` 等配置）
 - `ALLOWED_NAMESPACES` 建议只包含当前工作所需的命名空间
+
+示例中的 2.0.0 是历史固定版本，不代表推荐版本；配置时沿用当前集群已核验的版本及该版本 schema。不要把占位凭据或真实客户端配置同步到公开仓库。

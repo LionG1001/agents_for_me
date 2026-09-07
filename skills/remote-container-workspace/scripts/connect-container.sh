@@ -59,6 +59,9 @@ done
 
 [[ -n $host ]] || die '--host is required.'
 [[ -n $user ]] || die '--user is required.'
+[[ $host =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || die 'Invalid SSH host.'
+[[ $user =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]] || die 'Invalid SSH user.'
+[[ $container =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die 'Invalid container name.'
 [[ -n $container ]] || die '--container is required.'
 [[ -n $workdir && $workdir == /* ]] || die '--workdir must be an absolute path.'
 [[ $port =~ ^[0-9]+$ ]] && ((port >= 1 && port <= 65535)) || die '--port must be between 1 and 65535.'

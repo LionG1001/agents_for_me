@@ -30,7 +30,7 @@ Ask only for missing values that cannot be inferred safely. Never copy a passwor
    docker exec -w <workdir> <container> pwd
    ```
 
-5. Confirm that the returned path exactly matches the requested workspace. Diagnose missing containers or directories before continuing.
+5. Inspect the named container’s running state, image identity and mounts with `docker inspect`; compare them with any task expectations. Confirm that the returned path matches the requested workspace (accounting for verified symlink resolution). Diagnose missing containers or directories before continuing.
 6. Run requested commands non-interactively when possible. Open a visible interactive terminal only when the user needs to control a shell.
 
 On Linux/macOS, use `scripts/connect-container.sh ...`; on Windows, use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/connect-container.ps1 ...`. The process-level bypass supports Windows systems that disable local scripts without changing the system execution policy. Use `--dry-run` or `-DryRun` first when parameters or quoting are uncertain.
@@ -144,10 +144,10 @@ Linux/macOS with bash:
 
 ```bash
 ./scripts/connect-container.sh \
-  --host 10.20.35.29 \
-  --user mccxadmin \
-  --container jd_dev \
-  --workdir /data/bevformer_bk/liang.geng/jd_test
+  --host worker.example.com \
+  --user devuser \
+  --container dev-container \
+  --workdir /workspace/project
 ```
 
 Add `--interactive` to open a shell, or add `--command 'git status --short'` for a one-shot command.
@@ -156,10 +156,10 @@ Windows with PowerShell:
 
 ```powershell
 .\scripts\connect-container.ps1 `
-  -HostName 10.20.35.29 `
-  -UserName mccxadmin `
-  -Container jd_dev `
-  -WorkDir /data/bevformer_bk/liang.geng/jd_test
+  -HostName worker.example.com `
+  -UserName devuser `
+  -Container dev-container `
+  -WorkDir /workspace/project
 ```
 
 Add `-Interactive` to open a shell, or add `-Command 'git status --short'` for a one-shot command.

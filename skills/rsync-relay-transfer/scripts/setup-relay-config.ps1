@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)] [string] $User,
     [string] $BasePath = '',
     [string] $ConfigDirectory = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.config\rsync-relay-transfer'),
+    [switch] $Replace,
     [Security.SecureString] $Password
 )
 
@@ -17,10 +18,16 @@ foreach ($value in @($RelayHost, $Module, $User)) {
     }
 }
 
-if ($BasePath -match '(^|[\\/])\.\.([\\/]|$)') {
+if ($BasePath -match '(^|[\\/])\.\.([\\/]|$)|[\r\n?#]') {
     throw 'BasePath 不能包含父目录片段。'
 }
 
+foreach ($path in @($ConfigDirectory, (Join-Path $ConfigDirectory 'password.txt'), (Join-Path $ConfigDirectory 'config.json'))) {
+    if (Test-Path -LiteralPath $path) {
+        if ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing reparse-point configuration path.' }
+        if ($path -ne $ConfigDirectory -and -not $Replace) { throw 'Configuration exists; review before using -Replace.' }
+    }
+}
 if (-not $Password) {
     $Password = Read-Host '请输入 rsync 中转站密码' -AsSecureString
 }
@@ -29,6 +36,12 @@ New-Item -ItemType Directory -Force -Path $ConfigDirectory | Out-Null
 $passwordFile = Join-Path $ConfigDirectory 'password.txt'
 $configFile = Join-Path $ConfigDirectory 'config.json'
 
+# Restrict the directory before creating any credential-bearing file.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+$directoryAcl = New-Object Security.AccessControl.DirectorySecurity
+$directoryAcl.SetAccessRuleProtection($true, $false)
+$directoryAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+Set-Acl -LiteralPath $ConfigDirectory -AclObject $directoryAcl
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
 try {
     $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)

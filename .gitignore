@@ -9,3 +9,8 @@ secrets/
 # Operating-system metadata
 .DS_Store
 Thumbs.db
+
+# Generated Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
