@@ -18,6 +18,7 @@ agents_for_me/
 ### MCP
 
 - [在 Codex 中连接思源笔记 MCP](docs/mcp/siyuan-codex.md)
+- [Atlassian MCP：Codex 连接内网 Jira 与 Confluence](docs/mcp/atlassian-codex.md)
 
 ### User Skills
 
