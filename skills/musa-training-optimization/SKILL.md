@@ -254,7 +254,7 @@ MCCL channel、buffer 和 ACE 等参数先做真实 message size 的小范围 sw
 
 ## 资源路由
 
-迁移实验代码、复核历史性能、整理优化 PR 或调整 launcher 默认值时，读取 [references/veomni-qwen35-lessons.md](references/veomni-qwen35-lessons.md)。它总结真实路由、数值顺序、stream 生命周期、依赖复现和正常入口交付中的具体经验；案例参数不作为其他任务的通用默认。
+分析 GDN 后端组合、空模态分支、视觉 patch 投影、批量梯度范数、MoE 稳定分桶或回退预热，以及迁移实验代码、复核历史性能、整理优化 PR 或调整 launcher 默认值时，读取 [references/veomni-qwen35-lessons.md](references/veomni-qwen35-lessons.md)。第 8 节记录既有基线优化的机制与边界，第 9 节说明预热特化，第 10 节保留关键负结果；前面各节说明测量、数值、stream 和交付经验。案例参数不作为其他任务的通用默认。
 
 读取 [references/musa-training-playbook.md](references/musa-training-playbook.md) 获取：
 

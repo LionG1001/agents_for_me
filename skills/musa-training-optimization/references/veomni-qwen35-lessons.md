@@ -1,6 +1,6 @@
 # VeOmni Qwen3.5 优化的可复用经验
 
-适用于将实验 fastpath 整理成正常训练实现、复核历史收益、审查数值边界和发布优化 PR。以下来自 2026-10 的 MUSA Qwen3.5-MoE 工作；卡数、版本、shape、对齐长度和开关依赖均是案例条件，不是其他模型的默认参数。
+适用于分析已采用的训练优化、将实验 fastpath 整理成正常训练实现、复核历史收益、审查数值边界和发布优化 PR。以下来自 2026-10 的 MUSA Qwen3.5-MoE 工作及其历史基线；卡数、版本、shape、对齐长度和开关依赖均是案例条件，不是其他模型的默认参数。复现与交付见第 1–7 节，基线优化机制见第 8 节，回退预热见第 9 节，负结果见第 10 节。
 
 ## 1. 建立能解释差距的复现记录
 
@@ -85,3 +85,56 @@ ready-event 应覆盖最后一次实际 payload 操作，包括 contiguous 拷�
 检查开关之间的实际依赖，而非只检验每个值合法。例如本案例 native warmup 依赖 counting sort，shard padding 限定 FSDP overlap/comm 模式：非法组合应在启动训练前给出可操作的错误，关闭对应优化后允许原有模式。
 
 用本地替身检查完整脚本能否把默认值/覆盖值传到子进程，是否保留训练参数、拒绝非法组合和忙卡；这证明 launcher 行为，不证明 GPU 性能。此前显式开启同一配置的训练数字可以作为已有记录，不能因默认值改成开启就声称新增收益或长期训练认证。
+
+## 8. 复用已经进入基线的优化
+
+以下五项在本轮恢复前已进入训练基础，不是 PR #15–17 首次引入。历史阶段实验支持部分方案的方向性收益，但统计口径不同，且本轮没有重新量化它们各自的贡献；不能把历史差值重新分配到最终组合成绩中。
+
+### 8.1 GDN 后端组合：保留已快的归一化
+
+替换 GDN 主干时，比较完整 adapter、forward、backward 及 checkpoint 重算。本案例采用 `torch_kernels` 的 TileLang GDN，同时保留 FLA Triton L2Norm。依赖里的 `use_qk_l2norm_in_kernel=True` 实际走普通 Torch 算子链；名称不证明内部融合，归一化增加的耗时可以抵消 GDN 核心 kernel 的收益。
+
+据此选择各部分实际较快的实现，不要求整套来自同一后端。历史同负载 50 步 A/B 支持该组合的方向性收益，本轮确认安装源码与真实前反向执行。当前适配仅支持限定 packed 训练接口：`B=1`、给定 `cu_seqlens`、每段至少 128 token，其余 dtype/head/layout 条件核对当前 adapter；dense、`initial_state`、`output_final_state` 等请求明确拒绝或选择受支持后端，不能用训练结果认证推理缓存正确性。参见 [GDN adapter](https://github.com/arcing-mt/VeOmni/blob/900794f9babc57a3963880e8a87d088c5b9fa3a0/veomni/ops/kernels/gated_delta_rule/musa_tilelang.py)。
+
+### 8.2 空模态：省整段计算前先核对分布式参与
+
+图像单模态数据中，同步视觉参数的参与组内所有 rank 都无 VIDEO 时，可跳过该槽位的 dummy 视觉塔计算；真实图像塔仍执行。先对模态存在性做组内各 rank 一致参与的归约（当前代码使用 `fsdp_group`，不泛指整个 world），再按组内全局结果决定每个 rank 应执行的 dummy 次数。本卡缺某模态、组内其他卡存在时仍须补齐该分支，以保持 FSDP 参数通信与梯度归约顺序；不能因本卡为空跳过存在性 collective。
+
+参与组全纯文本的批次是额外边界：当前实现仍让组内每个 rank 执行一次 dummy，保留 trainable vision 参数参与，避免 DDP 未使用参数问题。重审混合模态、数据跨 rank 不均衡和包装方式变化后的行为。本轮保留既有配置，没有新的严格单开关收益测量。参见 [空模态及 patch 投影实现](https://github.com/arcing-mt/VeOmni/blob/900794f9babc57a3963880e8a87d088c5b9fa3a0/veomni/models/transformers/qwen3_5_moe/qwen3_5_moe_musa_runtime_patch.py)。
+
+### 8.3 Vision patch：把合适的卷积表达为 GEMM
+
+当前输入已按不重叠 patch 排列，Conv3D 的 kernel 与 stride 相同、无 padding，每个 patch 只产生一个输出位置。因此沿原通道/时间/空间顺序展平输入与权重，用 `F.linear` 表达同一投影，省去还原小块和卷积路径的布局搬运。保留原参数形状与名字，仅在 forward 中 reshape 权重，使梯度回到原形状，保持 checkpoint 和 FSDP 参数布局。
+
+实数代数等价不保证不同 backend 逐位相同。验证实际 dtype 的输出、输入/权重梯度（按真实调用契约）及训练误差；普通重叠、padding 或 dilation 卷积需另行推导，不能直接套用。历史分阶段 A/B 有方向性收益，本轮已属于基线，不报告新的精确独立贡献。实现同上。
+
+### 8.4 Foreach 范数：批处理还要确认真正走快路径
+
+大量参数逐个 `norm → pow → add` 会产生密集的小 kernel 启动。按兼容的实际设备、dtype 和布局分组调用 `_foreach_norm`，再对较小的范数数组聚合，可减少调度；FP32 内部累加还可避免逐个梯度先物化完整 FP32 副本。
+
+当前栈只有部分范数阶数（如 1、2、inf）具有批处理 kernel，其他阶数可能仍逐 tensor 执行。检查 Trace，而不是仅凭 foreach 名称确认提速；空梯度、特殊 dtype/layout 和 offload 保留原定义或受支持的回退。DTensor 的 local shard 归约后仍须沿原分片/复制分组计算全局范数，保留 clip 系数、epsilon、非有限检查及 optimizer 更新语义。历史收益与本轮延迟日志修复分开记录。参见 [MUSA 范数适配](https://github.com/arcing-mt/VeOmni/blob/900794f9babc57a3963880e8a87d088c5b9fa3a0/veomni/ops/platform/musa/fsdp2_clip_grad_norm.py)。
+
+### 8.5 小范围 expert ID：稳定计数分桶代替通用排序
+
+若 expert ID 只取少量离散值，先分 block 计数，再对各 expert 的 block 计数做 exclusive prefix sum，最后结合 block 内局部顺序 scatter，即可生成 expert 连续且桶内稳定的 slot 布局。保持原 slot/token 映射及无效 slot、重复 expert、空输入行为；用 CPU 整数参照或原 stable argsort 验证映射、计数与顺序。
+
+保留稳定顺序可避免额外改变下游低精度累加顺序，但整数映射相同不证明整个浮点路径相同。历史 metadata microbenchmark 与训练实验支持小幅方向性收益；最终冻结组合两轮各 rank 的 TE 热路径未走 native 排序（每 rank 4000 次 TE、0 次 fallback），不能再把这项历史收益叠加到 TE 上。参见 [稳定分桶实现](https://github.com/arcing-mt/VeOmni/blob/900794f9babc57a3963880e8a87d088c5b9fa3a0/veomni/ops/kernels/moe/musa_deepep_compact.py)。
+
+## 9. 回退预热按编译特化类别设计
+
+快路径存在也要保留正确的 native fallback；实际路由改变时可能首次进入未编译的分支。根据真实编译 key 的 dtype、stride、整数分块/整除等类别选合成输入，覆盖观测到的特化，不只是重复一个常见 shape。本案例四种 token 数 256、257、4096、4095 覆盖当前安装 Triton 的两类整除条件组合，并设置重复 expert slot 触发原 native 处理。
+
+合成调用使用 trainer 当前设备、`no_grad` 与确定性构造，不读取真实样本、不消耗 RNG、不修改模型/optimizer、不发 collective，也不新增全局 device synchronize。预热只在首次真实 compaction 内按设备执行一次，仍位于原第 1 步计时中；保留原 50 次更新和固定稳态窗口，不能把初始化搬出计时来宣称训练加速。
+
+该安排主要控制冷初始化出现的位置，两轮单独实验未证明稳定稳态收益。合成输入还固定 `E=32`、`top-k=8`、`hidden=2048`；这些几何和四个 token 数只覆盖当前版本观测的特化，不是通用预热模板。设备、kernel 或编译器升级后重新审查真实 fallback 与新编译。参见 [原生回退预热](https://github.com/arcing-mt/VeOmni/blob/26eaf93f43e179c4f417eca2462a85a1be5eb7d1/veomni/ops/kernels/moe/musa_deepep_warmup.py)。
+
+## 10. 负结果改变下一步选择
+
+| 已做尝试 | 当前观察 | 可复用的判断 |
+| --- | --- | --- |
+| FLA 82 组分块/warps 配置及 GDN chunk 扫描 | 未得到足以替换原配置的稳定收益 | 测完整 FW/BW，穿插热基线；微小差异不构成更换默认的依据 |
+| HOST cu/vision geometry cache 与后台预取 | 缓存未证明稳定整步收益；后台预取变慢，现有实现还包含每批 state_dict/deepcopy | 先核对实际准备成本、复制和关键路径，不因“缓存/预取”名称就启用，也不把额外复制未经归因地认定为全部根因 |
+| ACE 配 FSDP overlap level 2/3 | DeepEP timeout，停止对应实验 | 检查 collective 顺序、stream/event 和资源竞争；level 0 仍有 native prefetch/shared overlap，不能解释成完全无重叠 |
+| 增大 MCCL buffer 或减少 CTA | 未证明整步收益，32 MiB buffer 在 step 2 OOM | 用真实尺寸及训练验证性能与内存；未完成运行不产生完整性能数字，具体参数不推广为通用默认 |
+
+这些是目标环境的负结果，不代表方案在所有设备或模型无效；timeout/OOM 的底层原因未全部确定。收益落在波动内的尝试保持未采用状态；正确性失败不通过放宽原门禁接受。保留原始条件与报告，在软件栈或关键路径有变化时再决定是否重试。
