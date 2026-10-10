@@ -40,7 +40,7 @@
 额外并发工作量    = kernel 累计时间 - GPU active union
 GPU idle          = GPU kernel span - GPU active union
 GPU 活跃率         = GPU active union / step wall time
-近似暴露通信       = 通信 GPU 时间 - 与其他 stream 的重叠时间
+暴露通信时间       = 目标通信区间并集减去计算区间并集后的时长
 ```
 
 这些量须按单个 device/rank、同一稳态 step 窗口裁剪后计算。累计时间减区间并集是重复计数的并发工作量，不等于两路以上并发的 wall-time 重叠。通信暴露时间以通信区间减去计算区间并集求差，不能把其他通信也算作被计算隐藏；是否位于关键路径还需结合依赖判断。
@@ -282,7 +282,9 @@ export MUSA_EXECUTE_COUNT=1
 
 ## 9. 验收矩阵
 
-| 类别 | 最低验收项 |
+按改动风险、当前阶段、声称范围和用户目标选择验收项；矩阵列出检查维度，不要求每个局部改动都执行多拓扑或长训。未覆盖的长期收敛、碎片和 resume 明确标为尚未认证，不自动扩大实验授权。用户要求专用 launcher 默认开启时，遵循主 skill 的限定配置、显式关闭和依赖检查契约。
+
+| 类别 | 按目标选择的验收项 |
 | --- | --- |
 | 数值 | forward、backward、参数更新、max_abs/max_rel、特殊值、空输入、短训 loss |
 | 性能 | 真实 shape microbenchmark、稳定 step A/B、多步波动、目标拓扑 |
@@ -297,7 +299,7 @@ export MUSA_EXECUTE_COUNT=1
 2. local/operator：observed shape microbenchmark，包含新增 layout、cast、pack 和 copy；
 3. target training：目标 batch、数据、拓扑和稳态窗口的端到端 A/B。
 
-只有前一 gate 通过才进入下一 gate。默认采纳阈值应高于基线噪声；无统一百分比时，用至少三次独立稳态测量估计噪声带。
+只有前一 gate 通过才进入下一 gate。建议通用性能默认时，收益证据应高于基线噪声；在授权范围内用多次独立稳态测量（例如三次）估计噪声带。用户选择专用 launcher 默认不等于通用采纳或新增性能认证。
 
 ## 10. Runtime path 与提案契约
 
