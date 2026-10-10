@@ -21,7 +21,7 @@ description: 面向 MUSA、torch_musa、MCCL 环境的大模型训练性能分�
 6. 没有目标 MUSA 设备上的运行结果时，只能声称“静态检查通过”或“方案已接入”，不得声称性能或精度已验证。
 7. 每次开始 GPU 实验、切换设备或资源状态变化后先检查目标卡上的活跃进程、显存占用和任务归属；不得抢占或停止未获授权的任务。
 8. 将假设来源标成 Trace 驱动、代码审计、平台文档或用户提供经验；来源不同不改变验收门槛。
-9. 先证明优化路径 imported、reachable、default-on、observed 和 fallback，再讨论收益；配置存在不等于 kernel 已执行。
+9. 分别记录优化路径 imported、reachable、default-on、observed 和 fallback，再讨论收益；默认关闭的路径也可以显式开启并命中，配置存在不等于 kernel 已执行。
 10. 高风险或高成本优化先形成带 `proposal_id`、`action_id` 的提案。用户尚未授权实现时先给出可审查提案；已有目标和范围授权时直接推进，避免把内部编号变成重复审批。
 
 ## 工作流
@@ -58,14 +58,18 @@ description: 面向 MUSA、torch_musa、MCCL 环境的大模型训练性能分�
 
 执行以下动作：
 
-- 预热若干 step，只统计稳定区间；
+- 固定预热和稳态统计窗口，保留全部原始 step，同时报告含启动的全程均值，不事后挑选窗口或删除慢步；
 - 记录多个 step 的平均值、中位数和波动范围；
+- 各 rank 是同一次分布式运行的观察，不作为独立重复测量次数；
 - 同时记录 tokens/s、峰值 allocated/reserved memory、loss 和梯度范数；
 - 对比 profiler 开启和关闭时的 step time；
 - 多机训练先验证每个 rank 的版本、代码和拓扑一致。
+- 保存实际执行文件的哈希、启动参数、依赖来源和每个 rank 的关键 kernel/autotune 配置；源码相同仍可能走不同编译配置。
 - 跨设备对比时可记录相对参考设备的归一化吞吐和显存，但必须对齐模型、精度、batch、shape、卡数和软件栈，不用未对齐 QPS 宣称平台优劣。
 
 不得使用单个冷启动 step 判断收益。
+
+接近性能阈值时做时间相近的配对或交错 A/B，区分单项、完整组合和启动准备的收益。microbenchmark 节约不能直接相加成整步收益。历史实现迁移到正常入口后须重新测量；观测到执行配置差异只能列为候选原因，不能先当作根因或强制旧配置。
 
 ### 4. 从 Trace 建立证据链
 
@@ -174,17 +178,17 @@ GPU 活跃率         = GPU active union / step wall time
 - 通信和计算是否位于不同 stream/engine；
 - pack/copy-in、collective、unpack/copy-out 分别在哪里执行；
 - event/wait 是否过早；
-- 目标通信与其他 stream 的时间交集；
+- 目标通信区间并集与计算区间并集的交集；
 - buffer 是否在异步操作完成前被释放或复用；
 - allocator 的 record-stream 语义是否与配置一致。
 
 使用下式估算暴露通信：
 
 ```text
-近似暴露时间 = 目标通信 GPU 时间 - 与其他 stream 的重叠时间
+暴露通信时间 = 目标通信区间并集减去计算区间并集后的时长
 ```
 
-若 overlap 后 step 没变快，定位等待是否只是移动到了后续同步点。
+按同 device、同窗口计算；通信之间互相重叠不能算作被计算隐藏，是否位于关键路径还需结合依赖判断。若 overlap 后 step 没变快，定位等待是否只是移动到了后续同步点。
 
 若进一步尝试 bucket 级 communication-update pipeline，还必须证明：
 
@@ -204,16 +208,22 @@ MCCL channel、buffer 和 ACE 等参数先做真实 message size 的小范围 sw
 2. local/operator gate：真实 shape microbenchmark，确认目标模块本身变快且新增搬运没有吞掉收益；
 3. target-training gate：目标 batch、数据、拓扑下的稳态端到端 A/B。
 
-每项优化至少覆盖：
+数值验证按声称的语义选择参照：整数路由/计数可用 CPU 整数结果；融合算子要覆盖实际 forward/backward 和累加顺序。修复资格判断可能切换 BF16/FP32 浮点分支，不能把算子或受控 fixture 的一致性扩展为完整模型轨迹、收敛或恢复认证。按真实适用条件检查各 rank 命中；仅部分 shape 适用的分支不要求每个 rank 都出现。
 
-1. 数值：forward、backward、参数更新、误差统计、特殊值、空 tensor/零 token 和短训练 loss；
-2. 性能：真实 shape microbenchmark、稳定 step A/B、多 shape、多拓扑和端到端收益；
-3. 显存：所有 rank 的 allocated、reserved、峰值、workspace、缓存和长时碎片；
-4. 稳定性：fallback、环境隔离、多机变量传播、checkpoint/resume 和长时间训练。
+按改动风险、声称范围和用户目标分阶段覆盖，不自动扩大实验授权：
 
-只有四类验收满足用户目标后，才能建议默认启用。性能变慢、收益在噪声内、精度超界或显存风险过高时，保留负结果并回滚默认路径。
+1. 数值：变更涉及的 forward、backward、参数更新、误差统计、特殊值、空 tensor/零 token 和短训练 loss；
+2. 性能：真实 shape microbenchmark、稳定 step A/B、目标拓扑及声称支持的 shape 范围；推广到其他拓扑时补充对应验证；
+3. 显存：目标运行所有 rank 的 allocated、reserved、峰值、workspace 和缓存；长时碎片在相应长训范围内验证；
+4. 稳定性：fallback、环境隔离和变量传播；checkpoint/resume、长时间训练按用户目标和相关行为改动补充，未覆盖时明确尚未认证。
+
+只有四类验收满足用户目标后，才能建议作为通用默认。用户明确要求专用 launcher 默认开启时，在已授权的配置范围内设置默认值，保留显式关闭、依赖检查与回退，并说明尚未完成的验证；不因此扩大通用库默认或宣称长期训练已认证。
+
+性能采纳或回退依据等价条件下该项开启/关闭的受控证据；迁移差距或未量化单项收益先标为待归因，不据此关闭整组默认。收益落在噪声内时不宣称提速。精度超界、错误路由或显存/稳定性故障及时停止对应路径并按授权回退，无需等待性能对照；保留负结果。
 
 实现完成后同步检查 launcher contract：参数解析、YAML/命令行/环境变量优先级、默认值、`=0` opt-out、日志和 README。优化默认开启前必须保留快速回滚路径。
+
+实验实现进入 PR 时接入正常模型/算子/通信入口，去除对实验目录和外部安装器的依赖。按可独立解释和回滚的训练模块分组，依赖库兼容修复单独提交；每个 PR 写清优化内容、适用条件和已有性能证据，不将完整组合收益归给单项。
 
 ## 特定任务处理
 
@@ -240,9 +250,11 @@ MCCL channel、buffer 和 ACE 等参数先做真实 message size 的小范围 sw
 
 ### 修改训练代码
 
-保持改动最小，避免修改安装目录中的 Transformers；优先使用项目自有 runtime patch 或适配层。修改后运行静态检查、目标单测和 MUSA 设备训练 A/B。未经用户明确授权，不同步远端、不停止任务、不启动训练。
+保持改动最小，避免修改安装目录中的 Transformers；优先使用项目自有 runtime patch 或适配层。根据实际影响执行静态检查、目标单测及必要的 MUSA 训练 A/B。若仅调整 launcher 默认且已有验证覆盖相同生效配置，可引用该记录并验证变量传递，不声称新增性能测量。未经用户明确授权，不同步远端、不停止任务、不启动训练。
 
 ## 资源路由
+
+迁移实验代码、复核历史性能、整理优化 PR 或调整 launcher 默认值时，读取 [references/veomni-qwen35-lessons.md](references/veomni-qwen35-lessons.md)。它总结真实路由、数值顺序、stream 生命周期、依赖复现和正常入口交付中的具体经验；案例参数不作为其他任务的通用默认。
 
 读取 [references/musa-training-playbook.md](references/musa-training-playbook.md) 获取：
 
