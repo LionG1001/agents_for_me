@@ -12,6 +12,8 @@
 
 镜像没有 GPU 时可先用 CPU/runtime 做依赖审计；这不替代 GPU 后端验证。逐节点检查容器本地环境，即使源码位于同一共享目录。
 
+最终复验还要记录实际容器 image ID、启动参数、关键环境变量和挂载；核对 editable 注册、模块及动态库的真实加载路径。借用开发目录中的环境、挂载宿主机 site-packages 或临时补包后成功，不能写成镜像独立包含全部依赖；项目规定的源码/模型/数据挂载应明确列为交付前提。
+
 除包版本外，记录驱动、runtime、硬件、基础镜像 digest、厂商组件源码 commit/包 SHA256。`pip freeze` 不包含驱动与所有动态库，也可能携带私有 URL；未经筛选不要直接发布。
 
 版本报告冲突时检查实际 import 文件、搜索路径及重复 `dist-info`，必要时核对包代码哈希。重复元数据可能导致版本查询与解析结果不一致；训练能跑不证明打包环境无歧义。清理或重装放在隔离环境验证，不直接修改活跃训练容器。
@@ -60,5 +62,7 @@
 - `Preparing`/连接存在不等于进度正常，也不等于挂死。结合日志变化、字节流量、重传和服务端状态判断；无可靠总量时不编造百分比或 ETA。
 - 成功记录 registry digest。单架构 manifest 可核对 config digest 与本地 image ID；多架构发布应核对 index 与目标平台 manifest，不能直接拿 index digest 对比 image ID。
 - 条件允许时从干净客户端拉取并复验。仅验证远端 manifest 时明确尚未做完整拉取/训练。Tag 可移动，交付记录同时保存不可变 digest。
+
+分别记录“仓库发布完成”“制品取得方式”“新容器实际训练”三项。经 `docker save/load` 转移并核对同一 image ID，可以验证该镜像的运行能力，但不证明接收方的 registry 认证与 pull 通路已走通；未做拉取记为未覆盖，不否定已完成的训练验证。`save/load` 用于镜像转移，`export/import` 用于文件系统重建，不能混称为同一次镜像搬运；后者按新制品重新记录身份和验收。参见 Docker 的 [image load](https://docs.docker.com/reference/cli/docker/image/load/) 与 [container export](https://docs.docker.com/reference/cli/docker/container/export/) 说明。
 
 发布记录建议只含：镜像引用/digest、来源版本、排除范围、验证级别、日志/退出码位置、最后核验时间。无需在交付正文保留整个打包历史。
