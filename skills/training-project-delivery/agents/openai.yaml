@@ -1,0 +1,4 @@
+interface:
+  display_name: "训练项目交付"
+  short_description: "串联环境准备、训练适配、性能验收与可手动复现的项目交付流程"
+  default_prompt: "使用 $training-project-delivery 根据当前项目的需求与已有证据，推进训练环境、适配验证、性能优化和交付，并列出尚未验收的内容。"
