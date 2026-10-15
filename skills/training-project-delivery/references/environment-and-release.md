@@ -12,6 +12,8 @@
 
 镜像没有 GPU 时可先用 CPU/runtime 做依赖审计；这不替代 GPU 后端验证。逐节点检查容器本地环境，即使源码位于同一共享目录。
 
+交付镜像命名遵循用户指定的“基础镜像仓库名 + tag”，完整形式为 `<registry>/<namespace>/<基础镜像名>:<交付tag>`。用户已给完整引用时原样使用；缺少目标仓库或 tag 时主动询问，再执行打标/上传，不自行起名或默认用 latest。若基础镜像与发布仓库不同，以用户明确给出的目标为准，不擅自改 registry、namespace 或镜像名；基础镜像原始引用/digest 另行保留。
+
 最终复验还要记录实际容器 image ID、启动参数、关键环境变量和挂载；核对 editable 注册、模块及动态库的真实加载路径。借用开发目录中的环境、挂载宿主机 site-packages 或临时补包后成功，不能写成镜像独立包含全部依赖；项目规定的源码/模型/数据挂载应明确列为交付前提。
 
 除包版本外，记录驱动、runtime、硬件、基础镜像 digest、厂商组件源码 commit/包 SHA256。`pip freeze` 不包含驱动与所有动态库，也可能携带私有 URL；未经筛选不要直接发布。
@@ -24,7 +26,7 @@
 2. 用当前镜像与可运行容器的差异列出“已有 / 缺少 / 需对齐 / 非本路径所需”。只对需要的组件采取动作，避免把整个开发容器升级清单变成交付要求。
 3. 普通依赖允许解析必要的传递依赖；constraints 仅约束解析，不会自行安装包。不能给所有安装命令一律加 `--no-deps`。
 4. 项目元数据会错误替换平台栈时，先显式满足运行依赖，再对项目或厂商组件使用受控的 `--no-deps`；`--no-build-isolation` 仅在构建环境已准备且需要保持平台 ABI 时使用。
-5. 厂商 DeepSpeed/Attention 扩展等，写明来源、版本或 commit、校验和、构建参数和后端验收。包名相同不证明与 PyPI/CUDA 构建等价。
+5. 对训练框架、并行/优化器模块、Attention/算子扩展及平台专有库逐项确认来源；不局限于 DeepSpeed。MUSA 项目同时检查 torch_musa、MCCL、muDNN 等 Python 包或动态库的实际加载位置与兼容关系。对实际使用的厂商组件记录版本或 commit、制品校验和、构建参数和后端验收；包名相同不证明与 PyPI/CUDA 构建等价，也不把示例组件全部变成必装项。
 6. 在未运行训练的独立环境验收依赖变更。不要在长跑容器中升级训练栈，再用旧进程仍在运行证明新安装正确。
 
 安装验证逐层进行：解析预演 → 实际安装 → import/CLI → 设备/后端 → 所需训练验证。`pip --dry-run` 或 `--help` 通过不能称为完整安装重建通过。
@@ -50,9 +52,9 @@
 
 1. 确定要带走的环境和排除的源码、数据、模型、checkpoint、缓存。核对 bind mount；挂载内容通常不在 commit 中，位于可写层的源码却可能被带入。
 2. 观察运行任务与环境写入。训练 checkpoint 与环境镜像是不同交付物。评估 snapshot 一致性及暂停对分布式 watchdog 的影响；已有允许停任务的授权可在确有需要时使用。不能把本例未暂停的快照方式推广为永远 `--pause=false`。
-3. 在隔离副本中清理凭据、SSH 身份、认证配置、历史、私有源地址、日志和机器特有 editable 注册。不要清理活跃训练容器来制作干净镜像。
-4. 删除顶层文件不抹除旧层中的秘密。若秘密可能已进入层历史，重建干净镜像，或在确认适用时 export/import 扁平化；后者需重新声明 ENV、CMD、WORKDIR、用户等元数据，并检查 volume 内容不会被漏打或误打。
-5. 不把私钥、授权账户或固定密码作为免密方案打包。新容器重新生成 host key，按项目授权配置认证和 SSH 服务；检查 host 网络端口冲突。
+3. 在隔离副本中清理开发过程中新增的个人凭据、认证缓存、历史、私有源地址、日志和机器特有 editable 注册。SSH 身份按下方约定处理，不一律删除基础镜像已有配置；不要清理活跃训练容器来制作交付镜像。
+4. 删除顶层文件不抹除旧层中的内容。若不应分发的秘密已进入层历史，重建干净镜像，或在确认适用时 export/import 扁平化；后者需重新声明 ENV、CMD、WORKDIR、用户等元数据，并检查 volume 内容不会被漏打或误打。
+5. 用户选择沿用基础镜像的 SSH 身份时，保留该基础镜像中原有、获准用于目标分发范围的密钥与认证配置，不强制重新生成或再做一遍免密。区分服务端 host key、客户端身份密钥和 authorized_keys：仅保留 host key 不会自动获得登录权限。不得顺带打入开发者新增的个人私钥、agent socket 或其他账号凭据；分发范围改变时重新核对适用性。新容器验证指定用户到全部节点（含自身）的免密、SSH 服务和 host 网络端口；只有未配置或明确要求轮换时才重新配置。
 6. 新镜像验证版本、导入路径、设备数和训练后端，再执行交付承诺要求的训练/保存恢复验证。依赖导入通过时只能交付该级别的结论。
 
 ## 上传与完成判定
@@ -66,3 +68,40 @@
 分别记录“仓库发布完成”“制品取得方式”“新容器实际训练”三项。经 `docker save/load` 转移并核对同一 image ID，可以验证该镜像的运行能力，但不证明接收方的 registry 认证与 pull 通路已走通；未做拉取记为未覆盖，不否定已完成的训练验证。`save/load` 用于镜像转移，`export/import` 用于文件系统重建，不能混称为同一次镜像搬运；后者按新制品重新记录身份和验收。参见 Docker 的 [image load](https://docs.docker.com/reference/cli/docker/image/load/) 与 [container export](https://docs.docker.com/reference/cli/docker/container/export/) 说明。
 
 发布记录建议只含：镜像引用/digest、来源版本、排除范围、验证级别、日志/退出码位置、最后核验时间。无需在交付正文保留整个打包历史。
+
+### Docker 上传示例
+
+在**持有已验收镜像的上传机器**执行；将非敏感占位符替换为用户已确认的值。长上传先进入执行端持久会话（例如已安装的 tmux），再交互登录并运行下面步骤，断开本地终端不会关闭该会话。此例使用本机 Docker daemon，其他 context/远程 daemon 应沿用项目已核验的连接配置。
+
+```bash
+(
+set -euo pipefail
+set +x
+REGISTRY='<用户指定的registry主机及可选端口>'
+REGISTRY_USER='<上传账号>'
+SOURCE_IMAGE_ID='<已验收镜像的本地image-ID>'
+DELIVERY_REPOSITORY='<registry/namespace/基础镜像名>'
+DELIVERY_TAG='<用户指定的交付tag>'
+DELIVERY_IMAGE="${DELIVERY_REPOSITORY}:${DELIVERY_TAG}"
+UPLOAD_DIR='<本次上传的全新绝对日志目录>'
+mkdir -m 700 -- "$UPLOAD_DIR"
+task_auth_dir="$(mktemp -d)"
+trap 'rm -rf -- "$task_auth_dir"' EXIT
+
+# 密码/token 在 Docker 提示时输入，不写到命令或日志。
+docker --config "$task_auth_dir" login "$REGISTRY" --username "$REGISTRY_USER"
+docker image inspect "$SOURCE_IMAGE_ID" --format '{{.Id}}' > "$UPLOAD_DIR/image-id.txt"
+docker image tag "$SOURCE_IMAGE_ID" "$DELIVERY_IMAGE"
+printf '%s\n' "$DELIVERY_IMAGE" > "$UPLOAD_DIR/image-ref.txt"
+if docker --config "$task_auth_dir" image push "$DELIVERY_IMAGE" > "$UPLOAD_DIR/push.log" 2>&1; then
+  printf '0\n' > "$UPLOAD_DIR/push.exit"
+else
+  push_rc=$?
+  printf '%s\n' "$push_rc" > "$UPLOAD_DIR/push.exit"
+  exit "$push_rc"
+fi
+docker --config "$task_auth_dir" manifest inspect --verbose "$DELIVERY_IMAGE" > "$UPLOAD_DIR/manifest.json"
+)
+```
+
+另一个终端可用 `tail -f <本次上传目录>/push.log` 查看。非交互执行时改用组织凭据工具提供的标准输入配合 `login --password-stdin`，不要把密码写进脚本。`push.exit=0` 后还要核对日志 digest、registry manifest 与本地镜像身份，并将不可变 digest 写入交付记录；manifest 获取失败不抹掉 push 成功事实，但发布核验仍未完成。再按授权范围做拉取及新容器验证。命令依据 Docker 官方 [login](https://docs.docker.com/reference/cli/docker/login/)、[tag](https://docs.docker.com/reference/cli/docker/image/tag/)、[push](https://docs.docker.com/reference/cli/docker/image/push/) 和 [manifest inspect](https://docs.docker.com/reference/cli/docker/manifest/inspect/) 文档。
