@@ -1,4 +1,4 @@
 interface:
   display_name: "训练项目交付"
-  short_description: "串联环境准备、训练适配、性能验收与可手动复现的项目交付流程"
-  default_prompt: "使用 $training-project-delivery 根据当前项目的需求与已有证据，推进训练环境、适配验证、性能优化和交付，并列出尚未验收的内容。"
+  short_description: "依据Jira和已有授权自主推进复现、优化、验证与可手动复现的训练交付"
+  default_prompt: "使用 $training-project-delivery 读取项目需求，在已确认的目标环境和预算内自主完成复现、优化、验证及交付，只询问关键缺项或范围变更。"
