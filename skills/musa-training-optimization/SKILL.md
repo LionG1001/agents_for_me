@@ -254,6 +254,8 @@ MCCL channel、buffer 和 ACE 等参数先做真实 message size 的小范围 sw
 
 ## 资源路由
 
+处理视频/多模态取数长尾、CPU增强、共享解码缓存或独立样本前处理分组时，读取 [输入链路优化](references/input-pipeline-optimization.md)。先定位持续供数瓶颈，再检查分块、缓存和分组是否保持输入与随机语义；案例参数不作为通用默认。
+
 分析 GDN 后端组合、空模态分支、视觉 patch 投影、批量梯度范数、MoE 稳定分桶或回退预热，以及迁移实验代码、复核历史性能、整理优化 PR 或调整 launcher 默认值时，读取 [references/veomni-qwen35-lessons.md](references/veomni-qwen35-lessons.md)。第 8 节记录既有基线优化的机制与边界，第 9 节说明预热特化，第 10 节保留关键负结果；前面各节说明测量、数值、stream 和交付经验。案例参数不作为其他任务的通用默认。
 
 读取 [references/musa-training-playbook.md](references/musa-training-playbook.md) 获取：
