@@ -28,6 +28,7 @@ agents_for_me/
 - [多集群访问](skills/multi-cluster-access/SKILL.md)
 - [MUSA 分布式训练调试](skills/musa-distributed-debugging/SKILL.md)
 - [MUSA 训练性能优化](skills/musa-training-optimization/SKILL.md)
+- [训练项目交付](skills/training-project-delivery/SKILL.md)
 - [中国差旅餐饮发票整理](skills/organize-invoices/SKILL.md)
 - [发布 Agent Assets](skills/publish-agent-assets/SKILL.md)
 - [远程容器工作区](skills/remote-container-workspace/SKILL.md)
