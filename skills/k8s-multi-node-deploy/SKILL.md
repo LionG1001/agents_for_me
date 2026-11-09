@@ -36,6 +36,7 @@ python3 <skill-root>/scripts/hostfile_from_pods.py \
 
 ## 按需深入
 
+- 专用池、负载恢复或替换节点：阅读[专用池与节点恢复](references/dedicated-pools.md)，分别确定永久隔离、测试期间暂停对象及最终副本安排。
 - 部署/计划 hostfile/Pending：阅读 [操作参考](references/operations.md)，优先以当前类似 Deployment 为基线，核对差异后 apply。
 - 新建 YAML：使用 [模板](templates/multi-node-gpu-deployment.yaml)；[历史示例](templates/examples/jd_llm_pretrain_test.yaml) 仅展示结构，不能原样部署。
 - MCP 配置：阅读 [配置说明](mcp/README.md)，保留当前已核验版本，不因示例版本升级或降级客户端。
