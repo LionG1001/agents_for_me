@@ -2,10 +2,10 @@
 
 使用社区包 [sooperset/mcp-atlassian](https://github.com/sooperset/mcp-atlassian)，在本机通过 stdio 连接公司 Jira 与 Confluence Data Center：
 
-- Jira：`https://jira.mthreads.com`
-- Confluence：`https://confluence.mthreads.com`
+- Jira：`https://jira.example.com`
+- Confluence：`https://confluence.example.com`
 
-本方案直连两个系统，不经过 `mcp-atlassian.devops.mthreads.com` SSE 网关。MCP 进程由客户端启动，无需开放本机监听端口。
+MCP 进程由客户端启动，并直接访问两个系统的 API。
 
 本文同步自 `agent-compose/mcp/atlassian/GUIDE.md`，补充了 Codex 配置、独立凭据文件和本次部署验证结果。同步日期：2026-10-08。
 
@@ -37,12 +37,12 @@ touch "$HOME/.codex/mcp/atlassian/credentials.env"
 chmod 600 "$HOME/.codex/mcp/atlassian/credentials.env"
 ```
 
-在本机编辑 `~/.codex/mcp/atlassian/credentials.env`，按下列模板填写真实 PAT：
+在本机编辑 `~/.codex/mcp/atlassian/credentials.env`，将模板中的主机名和 PAT 替换为实际值。
 
 ```dotenv
-JIRA_URL='https://jira.mthreads.com'
+JIRA_URL='https://jira.example.com'
 JIRA_PERSONAL_TOKEN='<JIRA_PERSONAL_TOKEN>'
-CONFLUENCE_URL='https://confluence.mthreads.com'
+CONFLUENCE_URL='https://confluence.example.com'
 CONFLUENCE_PERSONAL_TOKEN='<CONFLUENCE_PERSONAL_TOKEN>'
 ```
 
@@ -153,13 +153,7 @@ args = ["--from", "mcp-atlassian==0.23.1", "mcp-atlassian", "--env-file", "/abso
 
 ## 6. 验证连接
 
-先确认 Codex 已识别配置：
-
-```bash
-codex mcp get atlassian --json
-```
-
-这条命令只检查配置登记，不代表 PAT 或真实查询已经成功。重新加载客户端后，应确认 MCP 初始化和工具列表，再进行只读查询：
+按 [MCP 索引](README.md#盘点与验证) 确认条目已启用。重新加载客户端后检查工具发现，并分别发起只读查询。
 
 - Jira：调用 `jira_search`，使用 JQL `assignee = currentUser() ORDER BY updated DESC`，`limit=1`。
 - Confluence：调用 `confluence_search`，使用 CQL `type=page`，`limit=1`。
@@ -191,7 +185,6 @@ codex mcp get atlassian --json
 
 ## 参考与同步来源
 
-- [原始 Atlassian guide（agent-compose）](https://sh-code.mthreads.com/andy.wang/agent-compose/-/blob/2ad6de089f958e86ad0473e8ab106ff2c8e9abc7/mcp/atlassian/GUIDE.md)：公司内网仓库，需要对应访问权限；原文包含 PAT 入口示意图。
 - [mcp-atlassian 上游](https://github.com/sooperset/mcp-atlassian)
 - [uv 安装文档](https://docs.astral.sh/uv/getting-started/installation/)
 - [Codex MCP 配置文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)

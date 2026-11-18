@@ -2,7 +2,7 @@
   "mcpServers": {
     "bastion-k8s": {
       "command": "npx",
-      "args": ["-y", "bastion-k8s-mcp@2.0.0"],
+      "args": ["-y", "bastion-k8s-mcp@3.0.1"],
       "env": {
         "BASTION_HOST": "<BASTION_HOST>",
         "BASTION_USER": "<BASTION_USER>",

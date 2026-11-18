@@ -17,6 +17,7 @@ agents_for_me/
 
 ### MCP
 
+- [Codex 用户级 MCP 配置与验证索引](docs/mcp/README.md)
 - [在 Codex 中连接思源笔记 MCP：Linux stdio 转接与 HTTP 配置](docs/mcp/siyuan-codex.md)
 - [Atlassian MCP：Codex 连接内网 Jira 与 Confluence](docs/mcp/atlassian-codex.md)
 

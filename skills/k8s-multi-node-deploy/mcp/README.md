@@ -1,33 +1,51 @@
 # bastion-k8s MCP 配置示例
 
-本目录提供部署 Skill 场景下的 `bastion-k8s-mcp` 配置示例。
+本目录提供 `bastion-k8s-mcp` 的 Codex 和 Cursor 配置示例。
 
-本 Skill 快照不包含原始工程仓库中的 MCP 源码和 `package.yaml`。可从随包提供的 [`bastion-k8s.example.json`](bastion-k8s.example.json) 开始配置；如需修改或构建 MCP 服务端，请另行取得 `bastion-k8s-mcp` 源码工程。
+## Codex
 
-## 使用方法
+将以下片段加入本机 `config.toml`。将脚本路径替换为已安装的 `bastion-k8s-mcp` 入口，并填写实际的堡垒机地址、用户名和允许的命名空间。
 
-1. 复制 `bastion-k8s.example.json`中的内容
-2. 粘贴到你的 MCP 客户端配置文件中
-3. 将占位符替换为实际值
+```toml
+[mcp_servers.bastion-k8s]
+command = "node"
+args = ["/absolute/path/to/bastion-k8s-mcp/dist/index.js"]
+env_vars = ["BASTION_PASSWORD"]
+startup_timeout_sec = 30
+tool_timeout_sec = 90
 
-> **Cursor 用户**：通常粘贴到 `~/.cursor/mcp.json` 或项目根目录的 `.cursor/mcp.json`
+[mcp_servers.bastion-k8s.env]
+BASTION_HOST = "bastion.example.com"
+BASTION_PORT = "22"
+BASTION_USER = "<BASTION_USER>"
+ALLOWED_NAMESPACES = "<NAMESPACE1>,<NAMESPACE2>"
+```
+
+使用密码时，从本机凭据管理器向 Codex 启动环境注入 `BASTION_PASSWORD`。使用 SSH 私钥时，移除密码变量的转发，并按已安装版本的说明设置 `BASTION_PRIVATE_KEY_PATH`。
+
+重新加载配置并调用 `bastion_check` 核验本机到堡垒机的 SSH 连通性。
+
+## Cursor
+
+将 [JSON 示例](bastion-k8s.example.json) 中的 `bastion-k8s` 条目加入 `~/.cursor/mcp.json` 或项目根目录的 `.cursor/mcp.json`，并在本机填充所需字段。示例使用 `3.0.1`，对应本次盘点的已安装版本。
 
 ## 字段说明
 
 | 字段 | 说明 | 示例 |
 |---|---|---|
-| `BASTION_HOST` | 可执行 `kubectl` 的跳板机（堡垒机）IP 或域名 | `10.121.120.7` |
-| `BASTION_USER` | SSH 用户名 | `mccxadmin` |
-| `BASTION_PASSWORD` | SSH 密码（或改用密钥） | （敏感信息，勿提交到 git） |
+| `BASTION_HOST` | 可执行 `kubectl` 的堡垒机 IP 或域名 | `bastion.example.com` |
+| `BASTION_USER` | SSH 用户名 | `<BASTION_USER>` |
+| `BASTION_PASSWORD` | SSH 密码 | 由本机环境注入 |
+| `BASTION_PRIVATE_KEY_PATH` | 私钥认证使用的绝对路径 | `/absolute/path/to/ssh-key` |
 | `BASTION_PORT` | SSH 端口 | `22` |
-| `ALLOWED_NAMESPACES` | 允许操作的命名空间列表（逗号分隔） | `his-test,prod` |
+| `ALLOWED_NAMESPACES` | 允许操作的命名空间列表（逗号分隔） | `<NAMESPACE1>,<NAMESPACE2>` |
 
 ## 架构说明
 
 ```
 本地 MCP 客户端
        ↓
-   bastion-k8s-mcp (本地 npx 进程)
+   bastion-k8s-mcp (本地 Node 进程)
        ↓ SSH (密码/密钥)
    堡垒机 (BASTION_HOST)
        ↓ kubectl
@@ -42,8 +60,5 @@
 
 ## 安全提示
 
-- 不要将真实密码提交到 git
-- 生产环境建议改用 SSH 密钥认证（bastion-k8s-mcp 支持 `BASTION_KEY` 等配置）
-- `ALLOWED_NAMESPACES` 建议只包含当前工作所需的命名空间
-
-示例中的 2.0.0 是历史固定版本，不代表推荐版本；配置时沿用当前集群已核验的版本及该版本 schema。不要把占位凭据或真实客户端配置同步到公开仓库。
+- 公开仓库只保存示例。连接配置和凭据存放在本机。
+- `ALLOWED_NAMESPACES` 只包含当前工作所需的命名空间。
