@@ -9,12 +9,12 @@
 ```text
 Codex
   -> 本地 stdio 转接程序（Linux 已验证方案）
-  -> http://cobwebs.asuscomm.com:60106/mcp
-  -> 华硕路由器 DDNS + TCP 60106 端口映射
-  -> 局域网设备上的思源服务（本例为 192.168.50.166:6806）
+  -> http://siyuan.example.com:6806/mcp
+  -> 路由器 DDNS + TCP 端口映射
+  -> 局域网设备上的思源服务
 ```
 
-该地址不是“仅局域网生效”：只要公网可以访问映射端口，知道地址和凭据的客户端就能访问它。
+将文中的 `siyuan.example.com:6806` 替换为实际域名和端口。公网开放映射端口后，知道地址和凭据的客户端可以访问服务。
 
 ## 1. 保存 API Token
 
@@ -45,7 +45,7 @@ export SIYUAN_MCP_AUTHORIZATION
 以下代理设置用于 **HTTP 直连方案**；stdio 转接程序使用 `trust_env=False`，不读取进程的 HTTP 代理设置。如果使用 Clash 等系统代理，建议让此 DDNS 域名直连，同时保留已有的 `NO_PROXY` 内容：
 
 ```powershell
-$siyuanNoProxyHost = "cobwebs.asuscomm.com"
+$siyuanNoProxyHost = "siyuan.example.com"
 $existingNoProxy = [Environment]::GetEnvironmentVariable("NO_PROXY", "User")
 $noProxyEntries = @($existingNoProxy -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
@@ -104,7 +104,7 @@ uv pip install --python "$siyuan_mcp_dir/venv/bin/python" \
 command = "/home/<USER>/.codex/mcp/siyuan/venv/bin/python"
 args = ["/home/<USER>/.codex/mcp/siyuan/bridge.py"]
 env_vars = ["SIYUAN_MCP_AUTHORIZATION"]
-env = { SIYUAN_MCP_URL = "http://cobwebs.asuscomm.com:60106/mcp", SIYUAN_MCP_HOST_HEADER = "localhost", PYTHONUNBUFFERED = "1" }
+env = { SIYUAN_MCP_URL = "http://siyuan.example.com:6806/mcp", SIYUAN_MCP_HOST_HEADER = "localhost", PYTHONUNBUFFERED = "1" }
 enabled = true
 required = false
 default_tools_approval_mode = "writes"
@@ -120,7 +120,7 @@ tool_timeout_sec = 60
 
 ```toml
 [mcp_servers.siyuan]
-url = "http://cobwebs.asuscomm.com:60106/mcp"
+url = "http://siyuan.example.com:6806/mcp"
 env_http_headers = { Authorization = "SIYUAN_MCP_AUTHORIZATION" }
 http_headers = { Host = "localhost" }
 enabled = true
@@ -251,13 +251,7 @@ escaped Markdown delimiters are detected.
 
 ## 4. 验证连接
 
-先检查 Codex 是否识别配置：
-
-```powershell
-codex mcp get siyuan --json
-```
-
-该命令只说明配置被识别，不能单独证明服务可用。使用 Linux stdio 方案时，运行配套健康检查：
+按 [MCP 索引](README.md#盘点与验证) 确认条目已启用。使用 Linux stdio 方案时，运行配套健康检查。
 
 ```bash
 "$HOME/.codex/mcp/siyuan/venv/bin/python" \
@@ -281,8 +275,8 @@ codex mcp get siyuan --json
 
 1. 公网 HTTP 不加密。API Token、笔记内容和工具参数可能被路径上的设备观察或篡改。
 2. MCP 权限较大。Token 泄露可能导致笔记读取、修改或管理操作。
-3. 路由器管理页面的 HTTPS 证书只保护路由器 Web 管理界面，不会自动保护转发到思源的 `60106` 端口。
-4. 思源自带证书若只包含 `localhost`、局域网 IP 等名称，就不能为 `cobwebs.asuscomm.com` 提供有效的公网 HTTPS 身份校验。
+3. 端口映射保留转发流量的原有协议。若要保护公网链路，需要为思源提供 HTTPS 入口。
+4. HTTPS 入口的证书应覆盖实际对外的域名。
 
 当前阶段建议：
 
