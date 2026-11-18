@@ -30,7 +30,7 @@ agents_for_me/
 - [MUSA 训练性能优化](skills/musa-training-optimization/SKILL.md)
 - [中国差旅餐饮发票整理](skills/organize-invoices/SKILL.md)
 - [发布 Agent Assets](skills/publish-agent-assets/SKILL.md)
-- [训练项目交付、Jira收口与评测移交](skills/training-project-delivery/SKILL.md)
+- [训练项目交付、Jira结果/附件/工时与评测移交](skills/training-project-delivery/SKILL.md)
 - [远程容器工作区](skills/remote-container-workspace/SKILL.md)
 - [Rsync 公网中转安全传输](skills/rsync-relay-transfer/SKILL.md)
 
