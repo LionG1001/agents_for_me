@@ -20,7 +20,12 @@ foreach ($name in $services) {
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
-    Set-Acl -LiteralPath $directory -AclObject $acl
+    # Set only the modified DACL; Set-Acl may request unavailable SACL privileges.
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        [IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new($directory), $acl)
+    } else {
+        [IO.DirectoryInfo]::new($directory).SetAccessControl($acl)
+    }
     $venv = Join-Path $directory 'venv'
     $python = Join-Path $venv 'Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $python)) {

@@ -41,7 +41,11 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $directoryAcl = New-Object Security.AccessControl.DirectorySecurity
 $directoryAcl.SetAccessRuleProtection($true, $false)
 $directoryAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
-Set-Acl -LiteralPath $ConfigDirectory -AclObject $directoryAcl
+if ($PSVersionTable.PSEdition -eq 'Core') {
+    [IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new($ConfigDirectory), $directoryAcl)
+} else {
+    [IO.DirectoryInfo]::new($ConfigDirectory).SetAccessControl($directoryAcl)
+}
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
 try {
     $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
@@ -62,7 +66,11 @@ $acl = New-Object Security.AccessControl.FileSecurity
 $acl.SetAccessRuleProtection($true, $false)
 $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'Allow')
 $acl.AddAccessRule($rule)
-Set-Acl -LiteralPath $passwordFile -AclObject $acl
+if ($PSVersionTable.PSEdition -eq 'Core') {
+    [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($passwordFile), $acl)
+} else {
+    [IO.FileInfo]::new($passwordFile).SetAccessControl($acl)
+}
 
 $config = [ordered]@{
     host = $RelayHost

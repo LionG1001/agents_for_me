@@ -143,6 +143,8 @@ class NativePowerShell(unittest.TestCase):
             self.assertEqual(check.returncode, 0, check.stderr)
             self.assertNotEqual(self.ps(command).returncode, 0)
             self.assertEqual((directory / 'password.txt').read_text(encoding='utf-8').strip(), 'fixture')
+            replaced = self.ps(command + ' -Replace')
+            self.assertEqual(replaced.returncode, 0, replaced.stderr)
 
 
 if __name__ == '__main__':
