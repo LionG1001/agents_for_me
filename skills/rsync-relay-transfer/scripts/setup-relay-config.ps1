@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $RelayHost,
     [Parameter(Mandatory)] [ValidateRange(1, 65535)] [int] $Port,

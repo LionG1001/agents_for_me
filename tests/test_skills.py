@@ -32,7 +32,7 @@ def load(skill, name):
 
 
 def run(args, **kwargs):
-    return subprocess.run([str(x) for x in args], text=True, capture_output=True, timeout=15, **kwargs)
+    return subprocess.run([str(x) for x in args], text=True, encoding='utf-8', capture_output=True, timeout=30, **kwargs)
 
 
 def fake(path, body):
@@ -53,20 +53,27 @@ class Assets(unittest.TestCase):
         (self.source / 'SKILL.md').write_text('---\nname: demo\ndescription: Demonstrate a fixture\n---\n')
 
     def sync(self, *extra, source=None, repo=None):
-        return run(['bash', script('publish-agent-assets', 'sync-assets.sh'), '--type', 'skill',
+        return run([sys.executable, '-X', 'utf8', script('publish-agent-assets', 'assets.py'), 'sync', '--type', 'skill',
                     '--source', source or self.source, '--repository-root', repo or self.repo, *extra])
 
     def validate(self):
-        return run(['bash', script('publish-agent-assets', 'validate-repository.sh'), self.repo])
+        return run([sys.executable, '-X', 'utf8', script('publish-agent-assets', 'assets.py'), 'validate', self.repo])
 
     def test_destination_symlink_rejected(self):
         outside = self.base / 'outside'; outside.mkdir()
-        (self.repo / 'skills').symlink_to(outside, target_is_directory=True)
+        try:
+            (self.repo / 'skills').symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f'Symlink creation unavailable: {exc}')
         self.assertNotEqual(self.sync().returncode, 0)
         self.assertEqual(list(outside.iterdir()), [])
 
     def test_source_root_symlink_rejected(self):
-        alias = self.base / 'alias'; alias.symlink_to(self.source, target_is_directory=True)
+        alias = self.base / 'alias'
+        try:
+            alias.symlink_to(self.source, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f'Symlink creation unavailable: {exc}')
         self.assertNotEqual(self.sync(source=alias).returncode, 0)
 
     def test_skips_cache(self):
@@ -194,7 +201,7 @@ class Cluster(unittest.TestCase):
         cls.mod = load('multi-cluster-access', 'clusterctl.py')
 
     def test_documented_schema_loads(self):
-        doc = (SKILLS / 'multi-cluster-access/references/registry.md').read_text()
+        doc = (SKILLS / 'multi-cluster-access/references/registry.md').read_text(encoding='utf-8')
         data = json.loads(re.search(r'```json\n(.*?)\n```', doc, re.S)[1])
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / 'config.json'; path.write_text(json.dumps(data))
@@ -226,6 +233,7 @@ class Cluster(unittest.TestCase):
             result = run([sys.executable, script('multi-cluster-access','askpass.py'), "dev@worker1's password:"], env=env)
             self.assertEqual(result.stdout, 'fixture-value')
 
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux VPN runtime')
     def test_failed_vpn_start_stops_new_unit_and_removes_auth_file(self):
         with tempfile.TemporaryDirectory() as td:
             directory=Path(td); profile=directory/'vpn.conf'; profile.write_text('fixture')
@@ -253,6 +261,7 @@ class Cluster(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError): self.mod.stop_vpn('demo')
 
 
+@unittest.skipIf(sys.platform == 'win32', 'Run POSIX shell regressions on Linux')
 class Shell(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
@@ -378,6 +387,7 @@ class Hostfile(unittest.TestCase):
         self.assertTrue(self.mod.matches({}, {'matchExpressions': [{'key': 'excluded', 'operator': 'NotIn', 'values': ['yes']}]}))
 
 
+@unittest.skipIf(sys.platform == 'win32', 'Run POSIX shell regressions on Linux')
 class OperationalEdges(unittest.TestCase):
     setUp = Shell.setUp
     def test_setup_password_mode_and_overwrite_guard(self):

@@ -78,6 +78,8 @@ MCP_LOGGING_STDOUT = "false"
 
 ### 4.2 使用 uvx 的替代配置
 
+Windows 可在仓库根目录运行 `./scripts/prepare-mcp.ps1 -Service atlassian`，在 Codex 用户目录准备同版本 venv。将 4.1 的 command 改为本机绝对路径 `C:/Users/<USER>/.codex/mcp/atlassian/venv/Scripts/mcp-atlassian.exe`，credentials.env 也使用本机实际绝对路径。自定义了 `CODEX_HOME` 时使用该目录。凭据文件应继承安装目录仅当前用户可访问的 ACL；不要把真实 PAT 写入仓库或命令历史。未提供真实端点和凭据时，运行包已安装仍不代表 Jira/Confluence 连接已配置。
+
 也可以保留原始 guide 的 uvx 方式。将 4.1 中 `atlassian` 条目的 `command` 和 `args` 替换为：
 
 ```toml

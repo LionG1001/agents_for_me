@@ -1,4 +1,4 @@
-[CmdletBinding(SupportsShouldProcess)]
+﻿[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][ValidateSet('Skill', 'McpDoc')][string]$Type,
     [Parameter(Mandatory)][string[]]$Source,
@@ -9,7 +9,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $assetType = if ($Type -eq 'Skill') { 'skill' } else { 'mcp-doc' }
-$arguments = @((Join-Path $PSScriptRoot 'assets.py'), 'sync', '--type', $assetType, '--repository-root', $RepositoryRoot)
+$arguments = @('-X', 'utf8', (Join-Path $PSScriptRoot 'assets.py'), 'sync', '--type', $assetType, '--repository-root', $RepositoryRoot)
 foreach ($item in $Source) { $arguments += @('--source', $item) }
 if ($Update) { $arguments += '--update' }
 if ($DryRun -or $WhatIfPreference) { $arguments += '--dry-run' }

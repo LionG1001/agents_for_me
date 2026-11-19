@@ -1,6 +1,6 @@
 # Codex 用户级 MCP
 
-以下服务通过本机进程与 Codex 使用 stdio 通信。重新配置时，按当前安装环境填写可执行文件和脚本的绝对路径。
+以下为个人环境使用过的服务清单，并非六个可安装服务包。仓库提供思源 bridge 源码及 Atlassian/Bastion 的上游配置说明；`dingtalk-dws`、`huishan-cluster` 的分发入口尚待补齐（[Issue #17](https://github.com/LionG1001/agents_for_me/issues/17)）。`node_repl` 由 Codex 应用提供。服务可通过本机 stdio 或远程 HTTP 接入；按当前环境填写绝对路径。Windows 安装入口及平台范围见 [Windows 安装](../windows-install.md)。
 
 | 注册名 | 启动方式 | 检查入口 |
 | --- | --- | --- |
@@ -25,6 +25,12 @@ for server in json.load(sys.stdin):
     state = "enabled" if server["enabled"] else "disabled"
     print(server["name"], state, sep="\t")
 '
+```
+
+PowerShell 等价检查（不打印完整环境或凭据）：
+
+```powershell
+codex mcp list --json | ConvertFrom-Json | Select-Object name, enabled
 ```
 
 配置启用后，在重新加载的会话里确认工具可发现，再按上表做只读检查。工具发现、上游鉴权与业务功能分别核验。堡垒机探测只覆盖本机到堡垒机的一跳。钉钉通知就绪情况以 `notify.ready` 为准。

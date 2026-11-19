@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import fcntl
 import getpass
 import json
 import os
@@ -17,13 +16,19 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
 SERVICE = "codex.multi-cluster-access"
 DEFAULT_CONFIG = Path.home() / ".config" / "codex" / "multi-cluster-access" / "clusters.json"
 ASKPASS = Path(__file__).with_name("askpass.py")
+WINDOWS = sys.platform == "win32"
+
+
+def require_linux(feature: str) -> None:
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError(f"{feature} 需要 Linux；请使用已配置的集群 MCP 或在 Linux 执行本脚本")
 
 
 def run(
@@ -38,7 +43,7 @@ def run(
 
 def load_config() -> dict[str, Any]:
     path = Path(os.environ.get("CLUSTER_ACCESS_CONFIG", DEFAULT_CONFIG)).expanduser()
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
     if data.get("version") != 2 or not isinstance(data.get("clusters"), dict):
         raise ValueError(f"不支持的注册表格式：{path}")
     validate_config(data)
@@ -87,7 +92,7 @@ def validate_config(data: dict[str, Any]) -> None:
         if profile_key in used_profiles:
             raise ValueError(f"任务 {task_name}: access_profile 已被 {used_profiles[profile_key]} 使用")
         used_profiles[profile_key] = task_name
-        if task.get("workdir") and not Path(str(task["workdir"])).is_absolute():
+        if task.get("workdir") and not PurePosixPath(str(task["workdir"])).is_absolute():
             raise ValueError(f"任务 {task_name}: workdir 必须是绝对路径")
 
 
@@ -138,6 +143,7 @@ def unit_name(cluster_name: str) -> str:
 
 
 def route_uses_vpn(host: str) -> bool:
+    require_linux("VPN 路由校验")
     result = run(["ip", "route", "get", host], check=False, capture=True)
     return result.returncode == 0 and re.search(r" dev (tun|tap)[^ ]* ", result.stdout) is not None
 
@@ -169,6 +175,8 @@ def dns_snapshot(name: str) -> tuple[str, ...]:
 
 @contextmanager
 def mutation_lock(cluster_name: str):
+    require_linux("VPN 管理")
+    import fcntl
     runtime_dir = Path(f"/run/user/{os.getuid()}")
     runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = runtime_dir / f"mca-{cluster_name}.lock"
@@ -279,6 +287,8 @@ def _start_vpn_locked(cluster_name: str, cluster: dict[str, Any]) -> None:
 
 def start_vpn(cluster_name: str, cluster: dict[str, Any]) -> None:
     vpn = cluster.get("vpn")
+    if vpn:
+        require_linux("VPN 启动")
     if not vpn or vpn_ready(vpn):
         if vpn:
             print(f"{cluster_name}: VPN ready")
@@ -357,6 +367,8 @@ def auth_options(endpoint_config: dict[str, Any]) -> list[str]:
 
 def ssh_base(cluster: dict[str, Any], target: dict[str, Any]) -> list[str]:
     bastion = cluster["bastions"][target["bastion"]]
+    if WINDOWS and any(item["auth_mode"] != "publickey" for item in (bastion, target)):
+        raise RuntimeError("Windows 原生 SSH 仅支持两跳公钥认证；密码连接请使用已配置的 MCP 或 Linux CLI")
     known_hosts = str(
         Path(cluster.get("known_hosts_file", Path.home() / ".ssh" / "known_hosts")).expanduser()
     )
@@ -378,7 +390,7 @@ def ssh_base(cluster: dict[str, Any], target: dict[str, Any]) -> list[str]:
         "%h:%p",
         bastion["username"] + "@" + bastion["host"],
     ]
-    proxy = shlex.join(proxy_parts)
+    proxy = subprocess.list2cmdline(proxy_parts) if WINDOWS else shlex.join(proxy_parts)
     args = [
         "ssh",
         *host_key_options,
@@ -419,6 +431,11 @@ def write_secret_file(runtime_dir: Path, prefix: str, secret_ref: str) -> Path:
 @contextmanager
 def ssh_environment(cluster: dict[str, Any], target: dict[str, Any]):
     bastion = cluster["bastions"][target["bastion"]]
+    if WINDOWS:
+        if any(item["auth_mode"] != "publickey" for item in (bastion, target)):
+            raise RuntimeError("Windows 密码连接请使用已配置的 MCP 或 Linux CLI")
+        yield os.environ.copy()
+        return
     runtime_dir = Path(f"/run/user/{os.getuid()}")
     runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     paths: list[Path] = []
@@ -618,6 +635,13 @@ def main() -> int:
         print_resolved(config, args.name)
     elif args.command == "status":
         vpn = cluster.get("vpn")
+        if not sys.platform.startswith("linux"):
+            if vpn:
+                reachable = tcp_reachable(vpn["probe_host"], int(vpn["probe_port"]))
+                print(f"cluster={cluster_name} tcp_reachable={str(reachable).lower()} vpn_route=unverified")
+                return 0 if reachable else 1
+            print(f"cluster={cluster_name} vpn=not-configured")
+            return 0
         ready = not vpn or vpn_ready(vpn)
         active = run(
             ["sudo", "systemctl", "is-active", unit_name(cluster_name)],
