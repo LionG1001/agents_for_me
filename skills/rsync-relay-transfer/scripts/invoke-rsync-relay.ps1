@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [ValidateSet('check', 'list', 'upload', 'download')] [string] $Action,
     [string] $LocalPath,

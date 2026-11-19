@@ -18,7 +18,7 @@ agents_for_me/
 ### MCP
 
 - [Codex 用户级 MCP 配置与验证索引](docs/mcp/README.md)
-- [在 Codex 中连接思源笔记 MCP：Linux stdio 转接与 HTTP 配置](docs/mcp/siyuan-codex.md)
+- [在 Codex 中连接思源笔记 MCP：stdio 转接与 HTTP 配置](docs/mcp/siyuan-codex.md)
 - [Atlassian MCP：Codex 连接内网 Jira 与 Confluence](docs/mcp/atlassian-codex.md)
 
 ### User Skills
@@ -37,5 +37,9 @@ agents_for_me/
 
 ## 维护与验证
 
-- 离线回归：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`
-- 仓库验证：`bash skills/publish-agent-assets/scripts/validate-repository.sh .`（Python 3.10+、PyYAML）
+- [Windows 安装、平台边界与验证](docs/windows-install.md)：全部 10 个 Skill 的安装入口和 6 项 MCP 的就绪条件。
+- Windows 安装预览：`./scripts/install-skills.ps1 -Update -WhatIf`；审查后去掉 `-WhatIf`，已有版本自动保留回滚副本。
+- Windows MCP 运行环境：`./scripts/prepare-mcp.ps1`。服务地址和凭据按文档单独配置，保留已有可用连接。
+- 离线回归：Linux 使用 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`；PowerShell 使用 `$env:PYTHONDONTWRITEBYTECODE='1'; python -X utf8 -m unittest discover -s tests -v`。
+- 仓库验证：Linux 使用 `bash skills/publish-agent-assets/scripts/validate-repository.sh .`；PowerShell 使用 `./skills/publish-agent-assets/scripts/validate-repository.ps1 -RepositoryRoot .`（Python 3.10+、PyYAML）。
+- CI 在 Windows 和 Ubuntu 分别执行离线回归；Windows 明确跳过 Linux shell/VPN 行为测试，Linux 跳过原生 Windows ACL 测试。

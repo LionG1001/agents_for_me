@@ -5,7 +5,7 @@ description: 管理多个研发集群的 VPN、堡垒机、目标服务器和容
 
 # 多集群访问
 
-已有适用 MCP 或连接工具时优先复用；Linux 本机也可用 `scripts/clusterctl.py` 解析 v2 注册表、从密钥环或集中代理取凭据并连接。不要仅为读取已有集群状态而迁移连接配置。CLI 的依赖与 schema 见 [注册表格式](references/registry.md)。
+已有适用 MCP 或连接工具时优先复用；`scripts/clusterctl.py` 可解析 v2 注册表。Windows 支持 list、resolve、状态信息和两跳公钥 SSH；VPN 路由校验、VPN 管理及密码 askpass 在 Linux 执行。Windows 的 TCP 可达不证明 VPN 路由已核验；脚本会明确输出 `vpn_route=unverified`。不要仅为读取已有集群状态而迁移连接配置。CLI 的依赖与 schema 见 [注册表格式](references/registry.md)。
 
 ## 工作流
 
@@ -23,6 +23,8 @@ python3 ~/.codex/skills/multi-cluster-access/scripts/clusterctl.py status <clust
 python3 ~/.codex/skills/multi-cluster-access/scripts/clusterctl.py ssh <target-or-task>
 python3 ~/.codex/skills/multi-cluster-access/scripts/clusterctl.py container-shell <task>
 ```
+
+Windows PowerShell 使用 `python -X utf8 "$env:USERPROFILE/.codex/skills/multi-cluster-access/scripts/clusterctl.py" list`；设置了 `CODEX_HOME` 时使用该目录。连接前读取注册表的平台限制；不要以关闭主机校验或在 Windows 模拟 systemd 来绕过依赖。
 
 ## 凭据和主机身份
 

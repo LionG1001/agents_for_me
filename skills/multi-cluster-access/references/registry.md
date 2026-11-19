@@ -78,7 +78,9 @@
 
 ## 运行依赖与主机密钥
 
-当前 CLI 面向 Linux，要求 Python 3.10+、OpenSSH；VPN 操作另需 OpenVPN、systemd、iproute2 和相应 sudo 权限。桌面凭据需要 Python keyring 和可用后端；集中凭据命令和纯公钥连接无需 keyring。
+CLI 要求 Python 3.10+、OpenSSH。Windows 原生支持 list、resolve、status 及堡垒机/目标机均为 publickey 的 SSH/容器操作；`key_path`、`known_hosts_file` 是本机绝对路径，容器 `workdir` 始终按 Linux POSIX 绝对路径校验。Windows status 仅报告 TCP 探测和 `vpn_route=unverified`，不能当作 VPN 路由证明；连接需 VPN 时使用既有 MCP 或 Linux CLI。
+
+VPN 操作只支持 Linux，另需 OpenVPN、systemd、iproute2 和相应 sudo 权限；两跳密码 askpass 也在 Linux 使用。桌面凭据需要 Python keyring 和可用后端；集中凭据命令和纯公钥连接无需 keyring。不要把 Windows 路径直接复用到 WSL/Linux 的注册表。
 
 端点必须显式设置 `auth_mode`：`password` 配 `secret_ref`，`publickey` 配绝对 `key_path`。使用 `StrictHostKeyChecking=yes`；首次使用前通过可信渠道核验指纹并预置堡垒机和目标机的 known_hosts，可用集群字段 `known_hosts_file` 指定文件。不要通过关闭校验解决连接失败。
 

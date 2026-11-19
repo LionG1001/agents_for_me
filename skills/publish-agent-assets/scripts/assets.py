@@ -47,7 +47,7 @@ def checkout(path: Path) -> Path:
     no_links(path.absolute())
     root = path.resolve(strict=True)
     result = subprocess.run(['git', '-C', str(root), 'rev-parse', '--show-toplevel'],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8')
     if result.returncode or Path(result.stdout.strip()).resolve() != root:
         raise ValueError(f'Not a Git checkout root: {root}')
     return root

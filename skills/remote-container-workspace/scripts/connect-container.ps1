@@ -1,4 +1,4 @@
-[CmdletBinding(DefaultParameterSetName = 'Verify')]
+﻿[CmdletBinding(DefaultParameterSetName = 'Verify')]
 param(
     [Parameter(Mandatory)]
     [string]$HostName,

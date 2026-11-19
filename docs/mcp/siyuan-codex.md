@@ -116,6 +116,17 @@ tool_timeout_sec = 60
 
 ### 2.3 HTTP 直连配置
 
+Windows 在仓库根目录运行 `./scripts/prepare-mcp.ps1 -Service siyuan`，准备独立 venv 与配套脚本。如需 stdio，使用 `C:/Users/<USER>/.codex/mcp/siyuan/venv/Scripts/python.exe` 启动本机 `bridge.py`，其余环境变量沿用 2.2；设置了 `CODEX_HOME` 时使用该目录。先备份配置，仅调整思源条目并移除旧 HTTP 传输字段；保留其他服务和审批设置。已有 HTTP 连接通过初始化/只读调用时继续复用，无需强制迁移。
+
+Windows 健康检查：
+
+```powershell
+$codexDirectory = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+& "$codexDirectory/mcp/siyuan/venv/Scripts/python.exe" -X utf8 "$codexDirectory/mcp/siyuan/check_connection.py"
+```
+
+检查器支持当前配置的 HTTP 与 stdio，按 UTF-8（含 BOM）读取 TOML，并尊重 `CODEX_HOME`。HTTP 检查使用该条目的认证环境变量和请求头，直连且不跟随重定向；不修改系统代理。
+
 这是原有配置，适用于能够正确覆盖 Host、并让目标域名直连的客户端。Windows 用户配置文件为 `%USERPROFILE%\.codex\config.toml`，Linux 为 `~/.codex/config.toml`：
 
 ```toml
