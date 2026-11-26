@@ -61,8 +61,8 @@ description: 面向 MUSA、torch_musa、MCCL 环境的大模型训练性能分�
 - 固定预热和稳态统计窗口，保留全部原始 step，同时报告含启动的全程均值，不事后挑选窗口或删除慢步；
 - 记录多个 step 的平均值、中位数和波动范围；
 - 各 rank 是同一次分布式运行的观察，不作为独立重复测量次数；
-- 同时记录 tokens/s、峰值 allocated/reserved memory、loss 和梯度范数；
-- 对比 profiler 开启和关闭时的 step time；
+- 用窗口内总 token 数除以总耗时计算 tokens/s，同时记录峰值 allocated/reserved memory、loss 和梯度范数。日志给出每卡 TFLOP/s 时，按各记录覆盖的时长加权；
+- 用关闭 profiler 的运行报告基线吞吐，对照开启时的 step time 估计采集开销；
 - 多机训练先验证每个 rank 的版本、代码和拓扑一致。
 - 保存实际执行文件的哈希、启动参数、依赖来源和每个 rank 的关键 kernel/autotune 配置；源码相同仍可能走不同编译配置。
 - 跨设备对比时可记录相对参考设备的归一化吞吐和显存，但必须对齐模型、精度、batch、shape、卡数和软件栈，不用未对齐 QPS 宣称平台优劣。
@@ -73,22 +73,9 @@ description: 面向 MUSA、torch_musa、MCCL 环境的大模型训练性能分�
 
 ### 4. 从 Trace 建立证据链
 
-优先计算四个时间指标：
+先按目标 rank 和稳态 step 核对事件。只有 CPU 注解、runtime 或 driver 调用时，报告主机侧调用耗时，有同步证据时再标注等待。GPU kernel 时间、设备通信重叠及流水线气泡占比记为未测。
 
-- Step wall time；
-- GPU kernel 累计时间；
-- 跨 stream 区间合并后的 GPU active union；
-- 第一个到最后一个 kernel 的 GPU kernel span。
-
-使用以下关系判断重叠和空闲：
-
-```text
-额外并发工作量    = kernel 累计时间 - GPU active union
-GPU idle          = GPU kernel span - GPU active union
-GPU 活跃率         = GPU active union / step wall time
-```
-
-这些量须按单个 device/rank、同一稳态 step 窗口裁剪后计算。累计时间减区间并集是重复计数的并发工作量，不等于两路以上并发的 wall-time 重叠。通信暴露时间以通信区间减去计算区间并集求差，不能把其他通信也算作被计算隐藏；是否位于关键路径还需结合依赖判断。
+设备事件覆盖目标窗口后，在同一 device/rank 上计算 step wall time、kernel 累计时间、跨 stream 的 kernel 区间并集和首末 kernel 跨度。窗口吞吐复算、时间区间定义及缺失事件的排查见[手册第 1 节](references/musa-training-playbook.md#1-指标与-trace-口径)。
 
 通过 correlation id 将 GPU kernel 映射到 runtime launch，再定位到最内层 CPU op、外层 annotation、自定义 autograd function 和 Python 模块。分别统计 exclusive 与 inclusive GPU 时间，避免重复累加嵌套模块。
 
