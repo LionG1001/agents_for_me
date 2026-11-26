@@ -32,20 +32,29 @@
 
 排除首步 checkpoint 加载、lazy initialization、native extension 编译、allocator 扩容、communicator 初始化、autotune 和 cache 填充。
 
+从训练日志复算预定窗口时，选同一轮运行的一份全局进度记录，按日志间隔核对起止步和缺口，避免重复计入多个 rank 的同一步。每条记录若覆盖多步，用这段的步数乘以平均步时得到区间时长。窗口不完整时注明实际覆盖范围。
+
+- 全局 tokens/s = 窗口内处理的 token 总数 / 窗口总秒数。等长无填充时可按实际消费样本数乘序列长度；有 padding 或 packing 时注明计数包含哪些 token。
+- 对同一 FLOP 估算公式和固定卡数，设每段日志的每卡速率为 `r_i`、对应秒数为 `t_i`，窗口每卡 TFLOP/s 约为 `Σ(r_i × t_i) / Σt_i`。近似误差来自日志舍入。例如两步分别用 1 秒和 3 秒，日志速率为 120 和 40，窗口结果为 60 TFLOP/s/卡。比较 MoE 配方时同时列出层数、专家数、top-k 和绝对 tokens/s，使读者能核对工作量。
+
 若报告相对另一类设备的性能折算比，分子和分母必须使用相同模型、精度、batch、shape、卡数、数据、训练阶段和计时边界，并同时报告绝对吞吐与峰值显存。跨设备折算用于描述工程目标，不替代本设备上的 A/B Trace。
 
 ### 1.2 GPU 时间口径
 
+逐个核对目标 rank、step 边界和设备轨道上的 kernel 执行事件。流水线分析按实际并行组映射 rank 到物理阶段，注明采到哪些阶段。CPU 侧 P2P 调用区间可能包含同步等待；若采集只有主机事件，保留 CPU 侧区间统计，设备端耗时和重叠记为未测。检查 profiler 的设备活动配置和 MUPTI 初始化日志，在相同容器中用已知会启动 kernel 的短算子确认设备事件可见后再补采。
+
+在同一设备的一个稳态 step 内裁剪所有 kernel 区间。取最早开始到最晚结束为 kernel 跨度，合并各 stream 的区间得到 kernel 覆盖时长。
+
 ```text
-额外并发工作量    = kernel 累计时间 - GPU active union
-GPU idle          = GPU kernel span - GPU active union
-GPU 活跃率         = GPU active union / step wall time
-暴露通信时间       = 目标通信区间并集减去计算区间并集后的时长
+重复计入的并发 kernel 时间 = kernel 累计时间 - kernel 覆盖时长
+首末 kernel 之间的空档     = kernel 跨度 - kernel 覆盖时长
+step 的 kernel 覆盖率      = kernel 覆盖时长 / step wall time
+暴露通信时间               = 目标设备通信区间并集减去设备计算区间并集后的时长
 ```
 
-这些量须按单个 device/rank、同一稳态 step 窗口裁剪后计算。累计时间减区间并集是重复计数的并发工作量，不等于两路以上并发的 wall-time 重叠。通信暴露时间以通信区间减去计算区间并集求差，不能把其他通信也算作被计算隐藏；是否位于关键路径还需结合依赖判断。
+kernel 空档中可能有异步拷贝，首个 kernel 之前和末个 kernel 之后的时间也在其跨度之外。报告整步设备空闲需另核对拷贝等设备活动的覆盖。计算未覆盖的并发通信区间只计一次，是否影响整步耗时还要沿依赖判断。
 
-Kernel 累计时间允许大于 wall time，因为多个 stream 可以并发。Inclusive 模块可能嵌套，不得直接求和。
+多个 stream 并发时，kernel 累计时间可以大于 wall time。例如三个 kernel 同时运行 1 ms，并发部分重复计入 2 ms。Inclusive 模块可能嵌套，不得直接求和。
 
 ### 1.3 Trace 归因顺序
 
